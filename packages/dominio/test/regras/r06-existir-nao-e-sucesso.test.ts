@@ -44,6 +44,8 @@ function conferencia(mudancas: Partial<ResultadoExistencia> = {}): ResultadoExis
     modo: 'real',
     contaExiste: true,
     acessosEncontrados: [],
+    // Conta criada e habilitada no AD; grupos ainda não conferidos.
+    etapaComprovada: 'habilitarConta',
     referenciaExterna: 'CN=ana.souza',
     conferidaEm: depois(60_000),
     ...mudancas,

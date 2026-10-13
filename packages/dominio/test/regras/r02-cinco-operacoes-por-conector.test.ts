@@ -38,6 +38,7 @@ class ConectorSimulado implements Conector {
       modo: 'simulado',
       contaExiste: false,
       acessosEncontrados: [],
+      etapaComprovada: null,
       referenciaExterna: null,
       conferidaEm: AGORA,
     });

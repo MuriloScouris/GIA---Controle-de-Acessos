@@ -265,6 +265,7 @@ describe('Regra 7 — M365 não cria usuário', () => {
         modo: 'real' as const,
         contaExiste: true,
         acessosEncontrados: ['grupo:GG_Financeiro', 'grupo:GG_VPN'],
+        etapaComprovada: 'adicionarGrupos' as const,
         referenciaExterna: 'CN=ana.souza',
         conferidaEm: depois(60_000),
       };
