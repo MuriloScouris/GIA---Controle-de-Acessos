@@ -67,7 +67,7 @@ export function validarItensPropostos(
     if (!sistemaHabilitadoParaVinculo(sistemasPorVinculo, vinculo, item.sistema)) {
       return falha('SISTEMA_NAO_HABILITADO_PARA_VINCULO', { sistema: item.sistema, vinculo });
     }
-    if (contemSegredo(item.parametros)) {
+    if (contemSegredo(item)) {
       return falha('SEGREDO_NAO_PERMITIDO', { sistema: item.sistema });
     }
   }

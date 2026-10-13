@@ -90,6 +90,12 @@ export interface ResultadoExistencia {
   readonly contaExiste: boolean;
   /** Acessos encontrados no destino, no mesmo formato de `acessosEsperados`. */
   readonly acessosEncontrados: readonly string[];
+  /**
+   * Última etapa que o destino comprova como feita (ex.: AD com conta criada e
+   * habilitada → `habilitarConta`), ou `null` se não comprova nenhuma. É o
+   * ponto seguro de retomada após reconciliação parcial.
+   */
+  readonly etapaComprovada: Etapa | null;
   readonly referenciaExterna: string | null;
   readonly conferidaEm: Instante;
 }
@@ -226,6 +232,9 @@ export function sanitizarResultado(resultado: ResultadoOperacao): ResultadoOpera
 // Revogação (regra 5).
 // ---------------------------------------------------------------------------
 
+/** Código do adaptador para "acesso já estava revogado" (só faz sentido em `revogar`). */
+export const CODIGO_JA_REVOGADO = 'JA_REVOGADO';
+
 export interface EstadoParaRevogacao {
   readonly contaExiste: boolean;
   readonly acessoAtivo: boolean;
@@ -256,7 +265,7 @@ export function interpretarEstadoParaRevogacao(
       'confirmado',
       modo,
       null,
-      'JA_REVOGADO',
+      CODIGO_JA_REVOGADO,
       'O acesso já estava revogado no destino.',
       false,
       null,

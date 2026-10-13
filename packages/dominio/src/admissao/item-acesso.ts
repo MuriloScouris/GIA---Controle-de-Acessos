@@ -84,6 +84,15 @@ export interface ItemAcesso {
   readonly versao: number;
 }
 
+/**
+ * Status de um item cuja operação não vai mais rodar (cancelada ou
+ * dependência perdida): `parcial` se já há etapa comprovada, para que a
+ * próxima execução retome dali (regra 4); senão `pendente`.
+ */
+export function statusAoLiberarItem(item: ItemAcesso): 'parcial' | 'pendente' {
+  return item.etapaAlcancada === null ? 'pendente' : 'parcial';
+}
+
 /** Status do item a partir do efeito real de uma operação de escrita. */
 export function statusItemPorEfeito(efeito: Efeito): StatusItem {
   switch (efeito) {

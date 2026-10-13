@@ -23,6 +23,8 @@ import {
   type Instante,
   type Uuid,
 } from '../comum/tipos.js';
+import { sanitizar, sanitizarTexto } from '../comum/sanitizacao.js';
+import { exigirTextoLivre } from '../comum/texto-livre.js';
 import { exigirVersao, proximaVersao, VERSAO_INICIAL } from '../comum/versao.js';
 import { eventoDoGia, type Evento } from '../eventos/evento.js';
 import {
@@ -238,9 +240,13 @@ export function receberChamado(
   };
   const pedido: PedidoAdmissao = {
     id: pedidoId,
-    origem: { sistema: chamado.origem.sistema, idExterno: chamado.origem.idExterno.trim() },
+    origem: {
+      sistema: chamado.origem.sistema,
+      idExterno: sanitizarTexto(chamado.origem.idExterno.trim()),
+    },
     tipoVinculo: chamado.tipoVinculo,
-    dadosRh: { ...chamado.dadosRh, cpf: normalizarCpf(chamado.dadosRh.cpf) },
+    // Dados externos (RH/Jira): segredos colados por engano não são persistidos (regra 12).
+    dadosRh: { ...sanitizar(chamado.dadosRh), cpf: normalizarCpf(chamado.dadosRh.cpf) },
     colaboradorId: colaborador.id,
     status: 'pendenteAprovacao',
     revisaoCorrenteId: revisao.id,
@@ -558,9 +564,9 @@ export function rejeitarPedido(
   if (!versao.ok) return versao;
   const transicao = exigirTransicao(TRANSICOES_PEDIDO, pedido.status, 'rejeitado');
   if (!transicao.ok) return transicao;
-  if (!textoPreenchido(entrada.motivo)) return falha('MOTIVO_OBRIGATORIO');
-
-  const motivo = entrada.motivo.trim();
+  const textoMotivo = exigirTextoLivre(entrada.motivo, 'MOTIVO_OBRIGATORIO');
+  if (!textoMotivo.ok) return textoMotivo;
+  const motivo = textoMotivo.valor;
   const atualizado = avancarPedido(
     pedido,
     { status: 'rejeitado', motivoRejeicao: motivo },
@@ -601,7 +607,8 @@ export function reabrirPedido(
   if (!transicao.ok) return transicao;
   const corrente = exigirPedidoNaRevisao(pedido, revisao);
   if (!corrente.ok) return corrente;
-  if (!textoPreenchido(entrada.motivo)) return falha('MOTIVO_OBRIGATORIO');
+  const textoMotivo = exigirTextoLivre(entrada.motivo, 'MOTIVO_OBRIGATORIO');
+  if (!textoMotivo.ok) return textoMotivo;
   const itensDaRevisao = entrada.itens.filter((item) => item.revisaoId === revisao.id);
   const emAndamento = itensDaRevisao.find((item) => STATUS_ITEM_EM_ANDAMENTO.includes(item.status));
   if (emAndamento) return falha('ITEM_EM_EXECUCAO', { itemId: emAndamento.id });
@@ -634,7 +641,7 @@ export function reabrirPedido(
     colaboradorId: pedido.colaboradorId,
     antes: { status: pedido.status, revisaoId: revisao.id },
     depois: { status: atualizado.status, revisaoId: nova.id },
-    dados: { motivo: entrada.motivo.trim() },
+    dados: { motivo: textoMotivo.valor },
   });
   return sucesso({ pedido: atualizado, revisao: nova, eventos: [evento] });
 }

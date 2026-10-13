@@ -1,5 +1,6 @@
 import {
   exigirItemExecutavel,
+  statusAoLiberarItem,
   statusItemPorEfeito,
   STATUS_ITEM_COM_PROBLEMA,
   STATUS_ITEM_CONCLUIDO,
@@ -16,11 +17,14 @@ import {
 import type { Revisao } from '../admissao/revisao.js';
 import { exigirPermissao, registrarAtor, type ContextoComando } from '../autorizacao/ator.js';
 import { exigirEstado, exigirTransicao } from '../comum/maquina-estados.js';
+import { sanitizarTexto } from '../comum/sanitizacao.js';
+import { exigirTextoLivre } from '../comum/texto-livre.js';
 import { falha, sucesso, type Resultado } from '../comum/resultado.js';
-import { compararInstantes, somarMs, textoPreenchido } from '../comum/tipos.js';
+import { compararInstantes, somarMs } from '../comum/tipos.js';
 import { exigirVersao, proximaVersao, VERSAO_INICIAL } from '../comum/versao.js';
 import {
   avaliarExistencia,
+  CODIGO_JA_REVOGADO,
   sanitizarResultado,
   type AvaliacaoExistencia,
   type ModoExecucao,
@@ -35,6 +39,7 @@ import {
   etapasDe,
   ETAPAS_DE_CRIACAO_DE_USUARIO,
   proximaEtapa,
+  type Etapa,
   type Sistema,
 } from '../sistemas/sistemas.js';
 import {
@@ -223,8 +228,10 @@ export function solicitarExecucao(
       lease: null,
       tentativas: 0,
       disponivelEm: ctx.agora,
+      // Retoma do ponto comprovado, qualquer que seja o status (parcial, falhou ou
+      // pendente depois de cancelamento): etapas já feitas não são repetidas.
       etapaInicial:
-        item.status === 'parcial'
+        item.etapaAlcancada !== null
           ? proximaEtapa(item.sistema, 'provisionar', item.etapaAlcancada)
           : null,
       etapaAlcancada: null,
@@ -492,14 +499,34 @@ function normalizarResultado(
       transitorio: false,
     });
   }
-  if (resultado.efeito === 'confirmado' && resultado.codigo !== 'JA_REVOGADO') {
-    const etapas = etapasDe(operacao.sistema, operacao.acao);
-    const ultima = etapas.at(-1) ?? null;
-    if (resultado.etapa !== ultima) {
-      return sucesso({ ...resultado, efeito: 'parcial' });
-    }
+  // Regra 5: `JA_REVOGADO` só vale para revogação. Em provisionamento é
+  // incoerente e não prova concessão nenhuma: vai para conferência.
+  if (operacao.acao === 'provisionar' && resultado.codigo === CODIGO_JA_REVOGADO) {
+    return sucesso({
+      ...resultado,
+      efeito: 'desconhecido',
+      codigo: 'CODIGO_INCOERENTE_COM_ACAO',
+      mensagem: 'O destino respondeu JA_REVOGADO a um provisionamento; confira no destino.',
+      transitorio: false,
+    });
   }
-  return sucesso(resultado);
+  let normalizado = resultado;
+  const jaRevogado = operacao.acao === 'revogar' && resultado.codigo === CODIGO_JA_REVOGADO;
+  if (normalizado.efeito === 'confirmado' && !jaRevogado) {
+    const ultima = etapasDe(operacao.sistema, operacao.acao).at(-1) ?? null;
+    if (normalizado.etapa !== ultima) normalizado = { ...normalizado, efeito: 'parcial' };
+  }
+  // Parcial sem etapa não diz o que já foi feito: retomar seria às cegas (regra 4).
+  if (normalizado.efeito === 'parcial' && normalizado.etapa === null) {
+    return sucesso({
+      ...normalizado,
+      efeito: 'desconhecido',
+      codigo: 'PARCIAL_SEM_ETAPA',
+      mensagem: 'Resultado parcial sem etapa alcançada; confira no destino antes de retomar.',
+      transitorio: false,
+    });
+  }
+  return sucesso(normalizado);
 }
 
 // ---------------------------------------------------------------------------
@@ -571,7 +598,9 @@ export function consolidarPedido(
       atualizadaEm: ctx.agora,
       versao: proximaVersao(operacao),
     });
-    const liberado = mudarStatusItem(dependente, 'pendente', { mensagem: motivo });
+    const liberado = mudarStatusItem(dependente, statusAoLiberarItem(dependente), {
+      mensagem: motivo,
+    });
     if (!liberado.ok) return liberado;
     itens.set(dependente.id, liberado.valor);
     itensAlterados.set(dependente.id, liberado.valor);
@@ -582,7 +611,7 @@ export function consolidarPedido(
         pedidoId: pedido.id,
         operacaoId: operacao.id,
         antes: { statusOperacao: operacao.status, statusItem: dependente.status },
-        depois: { statusOperacao: 'cancelada', statusItem: 'pendente' },
+        depois: { statusOperacao: 'cancelada', statusItem: liberado.valor.status },
         dados: { motivo },
       }),
     );
@@ -642,9 +671,9 @@ export function registrarAcessoManual(
   if (!versao.ok) return versao;
   const executavel = exigirItemExecutavel(item);
   if (!executavel.ok) return executavel;
-  if (!textoPreenchido(entrada.observacao)) return falha('OBSERVACAO_OBRIGATORIA');
-
-  const observacao = entrada.observacao.trim();
+  const textoObservacao = exigirTextoLivre(entrada.observacao, 'OBSERVACAO_OBRIGATORIA');
+  if (!textoObservacao.ok) return textoObservacao;
+  const observacao = textoObservacao.valor;
   const alterado = mudarStatusItem(item, 'registradoManual', {
     observacaoManual: observacao,
     mensagem: 'Acesso registrado manualmente; nenhum conector foi acionado.',
@@ -660,6 +689,13 @@ export function registrarAcessoManual(
     dados: { itemId: item.id, observacao },
   });
   return sucesso({ item: alterado.valor, eventos: [evento] });
+}
+
+/** Referência externa vinda do destino, sem segredos (regra 12). */
+function referenciaSanitizada(conferencia: ResultadoExistencia): string | null {
+  return conferencia.referenciaExterna === null
+    ? null
+    : sanitizarTexto(conferencia.referenciaExterna);
 }
 
 export type DesfechoReconciliacao = 'confirmado' | 'parcial' | 'falhou';
@@ -727,9 +763,34 @@ export function reconciliarItem(
     });
   }
 
+  const acaoEscrita = operacao.acao === 'revogar' ? 'revogar' : 'provisionar';
+  const etapas = etapasDe(item.sistema, acaoEscrita);
+  let etapaAlcancada: Etapa | null;
+  if (esperado === 'confirmado') {
+    etapaAlcancada = etapas.at(-1) ?? null;
+  } else if (esperado === 'falhou') {
+    // Conta ausente: nada comprovado no destino; recomeçar do início é seguro.
+    etapaAlcancada = null;
+  } else {
+    // Parcial: a retomada precisa de um ponto comprovado pela conferência.
+    const comprovada = conferencia.etapaComprovada;
+    if (
+      comprovada === null ||
+      !ehEtapaDoSistema(item.sistema, acaoEscrita, comprovada) ||
+      comprovada === etapas.at(-1)
+    ) {
+      return falha('ETAPA_DE_RETOMADA_NAO_COMPROVADA', {
+        sistema: item.sistema,
+        etapaComprovada: comprovada,
+      });
+    }
+    etapaAlcancada = comprovada;
+  }
+
   const alterado = mudarStatusItem(item, esperado, {
     mensagem: `Reconciliado: ${avaliacao.situacao}.`,
-    idExterno: conferencia.referenciaExterna ?? item.idExterno,
+    idExterno: referenciaSanitizada(conferencia) ?? item.idExterno,
+    etapaAlcancada,
     confirmadoEm: esperado === 'confirmado' ? ctx.agora : item.confirmadoEm,
   });
   if (!alterado.ok) return alterado;
@@ -801,7 +862,8 @@ export function comprovarAcessoManual(
   }
   const alterado = mudarStatusItem(item, 'confirmado', {
     mensagem: 'Acesso manual comprovado por conferência no destino.',
-    idExterno: conferencia.referenciaExterna ?? item.idExterno,
+    idExterno: referenciaSanitizada(conferencia) ?? item.idExterno,
+    etapaAlcancada: etapasDe(item.sistema, 'provisionar').at(-1) ?? null,
     confirmadoEm: ctx.agora,
   });
   if (!alterado.ok) return alterado;

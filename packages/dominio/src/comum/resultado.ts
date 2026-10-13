@@ -43,6 +43,7 @@ export type CodigoErro =
   | 'CONFERENCIA_SIMULADA'
   | 'DESFECHO_DIVERGE_DA_CONFERENCIA'
   | 'EXISTENCIA_INCOMPLETA'
+  | 'ETAPA_DE_RETOMADA_NAO_COMPROVADA'
   | 'DOCUMENTO_INDISPONIVEL'
   | 'EVENTO_DUPLICADO'
   | 'EVENTO_INEXISTENTE'
@@ -100,6 +101,8 @@ export const MENSAGENS_ERRO: Readonly<Record<CodigoErro, string>> = {
     'O desfecho informado não corresponde ao que foi conferido no sistema.',
   EXISTENCIA_INCOMPLETA:
     'A conta existe, mas nem todos os acessos esperados foram encontrados no destino.',
+  ETAPA_DE_RETOMADA_NAO_COMPROVADA:
+    'A conferência não comprova até que etapa o acesso foi feito; sem esse ponto seguro, nada é escrito de novo.',
   DOCUMENTO_INDISPONIVEL: 'O documento de acessos só é emitido para pedidos concluídos.',
   EVENTO_DUPLICADO: 'Evento já registrado; eventos não são regravados.',
   EVENTO_INEXISTENTE: 'Evento não encontrado.',

@@ -7,7 +7,8 @@ import {
 import { congelarProfundo } from '../comum/imutavel.js';
 import { falha, sucesso, type Resultado } from '../comum/resultado.js';
 import { mascararCpfs, sanitizar } from '../comum/sanitizacao.js';
-import { textoPreenchido, type Instante, type Uuid } from '../comum/tipos.js';
+import { exigirTextoLivre } from '../comum/texto-livre.js';
+import type { Instante, Uuid } from '../comum/tipos.js';
 import type { Sistema } from '../sistemas/sistemas.js';
 
 /**
@@ -81,6 +82,18 @@ export interface EntradaEvento extends DadosEvento {
   readonly correlacaoId?: string | null;
 }
 
+function copiarAtor(ator: AtorRegistrado): AtorRegistrado {
+  return ator.tipo === 'humano'
+    ? { tipo: 'humano', id: ator.id, nome: ator.nome, papeis: [...ator.papeis] }
+    : {
+        tipo: 'servico',
+        id: ator.id,
+        nome: ator.nome,
+        papeis: [...ator.papeis],
+        emNomeDe: ator.emNomeDe,
+      };
+}
+
 /** Sem segredos (regra 12) e com CPF mascarado. */
 function protegerConteudo<T>(valor: T): T {
   return mascararCpfs(sanitizar(valor));
@@ -101,7 +114,8 @@ export function criarEvento(entrada: EntradaEvento): Resultado<Evento> {
     id: entrada.id,
     tipo: entrada.tipo,
     origem: entrada.origem,
-    ator: entrada.ator,
+    // Fotografia própria do ator: o evento não compartilha o array de papéis do chamador.
+    ator: entrada.ator === null ? null : copiarAtor(entrada.ator),
     instante: entrada.instante,
     sistema: entrada.sistema ?? null,
     antes: protegerConteudo(entrada.antes ?? null),
@@ -169,13 +183,14 @@ export function registrarCorrecao(
   if (!permissao.ok) return permissao;
   const original = registro.find((evento) => evento.id === entrada.eventoOriginalId);
   if (!original) return falha('EVENTO_INEXISTENTE', { eventoId: entrada.eventoOriginalId });
-  if (!textoPreenchido(entrada.motivo)) return falha('MOTIVO_OBRIGATORIO');
+  const motivo = exigirTextoLivre(entrada.motivo, 'MOTIVO_OBRIGATORIO');
+  if (!motivo.ok) return motivo;
   const evento = eventoDoGia(ctx, {
     tipo: 'correcaoRegistrada',
     sistema: original.sistema,
     antes: original.depois,
     depois: entrada.correcao,
-    dados: { motivo: entrada.motivo.trim(), tipoOriginal: original.tipo },
+    dados: { motivo: motivo.valor, tipoOriginal: original.tipo },
     pedidoId: original.pedidoId,
     operacaoId: original.operacaoId,
     colaboradorId: original.colaboradorId,

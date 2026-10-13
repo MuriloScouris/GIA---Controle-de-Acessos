@@ -10,13 +10,22 @@ export type Profundo<T> = T extends (...args: never[]) => unknown
 /**
  * Congela o objeto e tudo o que ele alcança. Usado em revisões aprovadas e
  * eventos, que são evidência e não podem ser alterados depois de criados.
+ * Percorre os descendentes mesmo quando a raiz já está congelada (um
+ * `Object.freeze` raso não protege arrays e objetos internos).
  */
 export function congelarProfundo<T>(valor: T): T {
-  if (valor === null || typeof valor !== 'object' || Object.isFrozen(valor)) return valor;
+  congelarInterno(valor, new WeakSet());
+  return valor;
+}
+
+function congelarInterno(valor: unknown, vistos: WeakSet<object>): void {
+  if (valor === null || typeof valor !== 'object') return;
+  if (vistos.has(valor)) return;
+  vistos.add(valor);
   for (const chave of Reflect.ownKeys(valor)) {
-    congelarProfundo((valor as Record<PropertyKey, unknown>)[chave]);
+    congelarInterno((valor as Record<PropertyKey, unknown>)[chave], vistos);
   }
-  return Object.freeze(valor);
+  Object.freeze(valor);
 }
 
 /** Igualdade estrutural para dados simples (JSON-like), sem depender da ordem das chaves. */

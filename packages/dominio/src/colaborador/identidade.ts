@@ -1,5 +1,6 @@
 import { normalizarCpf } from '../comum/cpf.js';
 import { falha, sucesso, type Resultado } from '../comum/resultado.js';
+import { contemSegredo } from '../comum/sanitizacao.js';
 import { textoPreenchido, type Instante } from '../comum/tipos.js';
 
 /**
@@ -59,6 +60,7 @@ function montarIdentidade(
     return falha('LOGIN_EXCEDE_LIMITE', { login, limite: LIMITE_LOGIN });
   }
   if (!textoPreenchido(nomeExibicao)) return falha('DADO_INVALIDO', { campo: 'nomeExibicao' });
+  if (contemSegredo(nomeExibicao)) return falha('SEGREDO_NAO_PERMITIDO');
   return sucesso({
     login,
     upn: upn ?? email,

@@ -121,7 +121,18 @@ do Gia, guardas de autorização, identidade, pedido, operação/lease, execuç�
 - **Terceiros:** por padrão nenhum sistema gera item para `terceiro`.
 - **Documento:** só itens `confirmado` de pedido `concluido`; registro manual e
   simulação não entram.
-- **Eventos:** sanitizados (segredos) e com campos `cpf*` mascarados; o CPF
-  completo fica só no cadastro do colaborador.
+- **Eventos:** sanitizados (segredos), com o ator copiado e congelado em
+  profundidade, e com CPF mascarado por nome de campo (`cpf*`) **e por valor**
+  (qualquer CPF válido, ex.: `identificador` do SoftExpert); o CPF completo fica
+  só no cadastro do colaborador e nos parâmetros necessários ao provisionamento.
+- **Texto livre e dados externos:** observações e motivos com segredo são
+  recusados (`SEGREDO_NAO_PERMITIDO`) antes de virar entidade; referências de
+  conferência e dados do RH são sanitizados antes de persistir.
+- **Retomada segura (regra 4):** a execução retoma de `etapaAlcancada`,
+  qualquer que seja o status. Cancelar devolve o item a `parcial` quando há
+  etapa comprovada. Reconciliação parcial exige `etapaComprovada` na
+  conferência, e resultado `parcial` sem etapa vira `desconhecido`.
+- **`JA_REVOGADO`** só vale para `revogar`; em `provisionar` vira `desconhecido`
+  (`CODIGO_INCOERENTE_COM_ACAO`).
 - **Offboarding (standby):** só o que as regras exigem — `interpretarEstadoParaRevogacao`,
   etapas de revogação e a transição `desligado` do colaborador.

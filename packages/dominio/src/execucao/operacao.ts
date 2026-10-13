@@ -1,18 +1,13 @@
 import { exigirPermissao, type AtorRegistrado, type ContextoComando } from '../autorizacao/ator.js';
-import { TRANSICOES_ITEM, type ItemAcesso } from '../admissao/item-acesso.js';
+import { statusAoLiberarItem, TRANSICOES_ITEM, type ItemAcesso } from '../admissao/item-acesso.js';
 import {
   exigirTransicao,
   podeTransicionar,
   type TabelaTransicoes,
 } from '../comum/maquina-estados.js';
 import { falha, sucesso, type Resultado } from '../comum/resultado.js';
-import {
-  compararInstantes,
-  somarMs,
-  textoPreenchido,
-  type Instante,
-  type Uuid,
-} from '../comum/tipos.js';
+import { compararInstantes, somarMs, type Instante, type Uuid } from '../comum/tipos.js';
+import { exigirTextoLivre } from '../comum/texto-livre.js';
 import { proximaVersao } from '../comum/versao.js';
 import { ehOperacaoDeEscrita, type Efeito, type ModoExecucao } from '../conectores/conector.js';
 import { eventoDoGia, type Evento } from '../eventos/evento.js';
@@ -349,26 +344,26 @@ export function cancelarOperacao(
   if (item.id !== operacao.itemId) return falha('ITEM_FORA_DO_PEDIDO', { itemId: item.id });
   const transicao = exigirTransicao(TRANSICOES_OPERACAO, operacao.status, 'cancelada');
   if (!transicao.ok) return transicao;
-  if (!textoPreenchido(motivo)) return falha('MOTIVO_OBRIGATORIO');
+  const textoMotivo = exigirTextoLivre(motivo, 'MOTIVO_OBRIGATORIO');
+  if (!textoMotivo.ok) return textoMotivo;
+  const motivoLimpo = textoMotivo.valor;
 
-  const cancelada = atualizar(
-    operacao,
-    { status: 'cancelada', mensagem: motivo.trim() },
-    ctx.agora,
-  );
+  const cancelada = atualizar(operacao, { status: 'cancelada', mensagem: motivoLimpo }, ctx.agora);
   // Operação simulada nunca alterou o item; a real o deixou em andamento.
   let itemLiberado = item;
   if (
     operacao.modo === 'real' &&
     item.ultimaOperacaoId === operacao.id &&
-    item.status !== 'pendente'
+    item.status !== statusAoLiberarItem(item)
   ) {
-    const transicaoItem = exigirTransicao(TRANSICOES_ITEM, item.status, 'pendente');
+    const destino = statusAoLiberarItem(item);
+    const transicaoItem = exigirTransicao(TRANSICOES_ITEM, item.status, destino);
     if (!transicaoItem.ok) return transicaoItem;
     itemLiberado = {
       ...item,
-      status: 'pendente',
-      mensagem: motivo.trim(),
+      // Preserva `etapaAlcancada`: a próxima execução retoma do ponto comprovado.
+      status: destino,
+      mensagem: motivoLimpo,
       versao: proximaVersao(item),
     };
   }
@@ -379,7 +374,7 @@ export function cancelarOperacao(
     operacaoId: operacao.id,
     antes: { statusOperacao: operacao.status, statusItem: item.status },
     depois: { statusOperacao: cancelada.status, statusItem: itemLiberado.status },
-    dados: { motivo: motivo.trim() },
+    dados: { motivo: motivoLimpo },
   });
   return sucesso({ operacao: cancelada, item: itemLiberado, eventos: [evento] });
 }

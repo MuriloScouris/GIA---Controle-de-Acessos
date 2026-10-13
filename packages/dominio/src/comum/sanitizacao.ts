@@ -1,3 +1,5 @@
+import { ehCpfValido } from './cpf.js';
+
 /**
  * Regra 12 — Segredos fora de tudo. Senhas e chaves nunca aparecem em código,
  * respostas, logs ou eventos. Toda evidência, mensagem de conector, detalhe de
@@ -94,16 +96,30 @@ export function mascararCpf(cpf: string): string {
   return `${digitos.slice(0, 3)}.***.***-${digitos.slice(9)}`;
 }
 
+const CPF_EM_TEXTO = /(?<!\d)\d{3}\.?\d{3}\.?\d{3}-?\d{2}(?!\d)/g;
+
 /**
- * Mascara campos de CPF (`cpf`, `cpfTitular`...) em qualquer profundidade.
- * Eventos referenciam a pessoa pelo `colaboradorId`; o CPF completo fica só
- * no cadastro do colaborador, que é o alvo da anonimização.
+ * Mascara todo CPF válido dentro de um texto, qualquer que seja o campo
+ * (ex.: `identificador` do SoftExpert, que pode ser matrícula ou CPF).
+ */
+export function mascararCpfEmTexto(texto: string): string {
+  return texto.replace(CPF_EM_TEXTO, (achado) =>
+    ehCpfValido(achado) ? mascararCpf(achado) : achado,
+  );
+}
+
+/**
+ * Mascara CPF em qualquer profundidade: campos com nome de CPF (`cpf`,
+ * `cpfTitular`...) sempre, e qualquer outro valor de texto que contenha um
+ * CPF válido. Eventos referenciam a pessoa pelo `colaboradorId`; o CPF
+ * completo fica só no cadastro do colaborador, que é o alvo da anonimização.
  */
 export function mascararCpfs<T>(valor: T): T {
   return mascararCpfsInterno(valor, 0) as T;
 }
 
 function mascararCpfsInterno(valor: unknown, profundidade: number): unknown {
+  if (typeof valor === 'string') return mascararCpfEmTexto(valor);
   if (valor === null || typeof valor !== 'object' || profundidade >= PROFUNDIDADE_MAXIMA) {
     return valor;
   }
