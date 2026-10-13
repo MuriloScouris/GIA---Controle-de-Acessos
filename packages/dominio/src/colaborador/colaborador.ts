@@ -2,6 +2,7 @@ import { exigirPermissao, type ContextoComando } from '../autorizacao/ator.js';
 import { ehCpfValido, normalizarCpf } from '../comum/cpf.js';
 import { exigirTransicao, type TabelaTransicoes } from '../comum/maquina-estados.js';
 import { falha, sucesso, type Resultado } from '../comum/resultado.js';
+import { contemSegredo } from '../comum/sanitizacao.js';
 import { ehDataCivilValida, textoPreenchido, type DataCivil, type Uuid } from '../comum/tipos.js';
 import { exigirVersao, proximaVersao, VERSAO_INICIAL } from '../comum/versao.js';
 import { eventoDoGia, type Evento } from '../eventos/evento.js';
@@ -49,6 +50,8 @@ export function criarColaborador(
 ): Resultado<{ readonly colaborador: Colaborador; readonly eventos: readonly Evento[] }> {
   if (!ehCpfValido(dados.cpf)) return falha('CPF_INVALIDO');
   if (!textoPreenchido(dados.nome)) return falha('DADO_INVALIDO', { campo: 'nome' });
+  // Regra 12: nome e matrícula vão para a entidade, a resposta e o evento.
+  if (contemSegredo([dados.nome, dados.matricula])) return falha('SEGREDO_NAO_PERMITIDO');
   if (!ehDataCivilValida(dados.dataAdmissao)) {
     return falha('DADO_INVALIDO', { campo: 'dataAdmissao' });
   }

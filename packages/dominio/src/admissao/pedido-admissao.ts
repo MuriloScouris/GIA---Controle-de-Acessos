@@ -164,23 +164,29 @@ export function receberChamado(
 
   const validacao = validarChamado(chamado);
   if (!validacao.ok) return validacao;
+  // Dados externos (RH/Jira): segredos colados por engano não chegam a nenhuma
+  // entidade, retorno ou evento (regra 12). Daqui em diante só esta cópia é usada.
+  const dadosRh: DadosRh = {
+    ...sanitizar(chamado.dadosRh),
+    cpf: normalizarCpf(chamado.dadosRh.cpf),
+  };
 
   const eventos: Evento[] = [];
   let colaborador: Colaborador;
   let colaboradorCriado = false;
   if (entrada.colaboradorExistente !== null) {
-    if (entrada.colaboradorExistente.cpf !== normalizarCpf(chamado.dadosRh.cpf)) {
+    if (entrada.colaboradorExistente.cpf !== dadosRh.cpf) {
       return falha('DADO_INVALIDO', { motivo: 'colaborador informado tem outro CPF' });
     }
     colaborador = entrada.colaboradorExistente;
   } else {
     const criado = criarColaborador(
       {
-        cpf: chamado.dadosRh.cpf,
-        matricula: chamado.dadosRh.matricula,
-        nome: chamado.dadosRh.nomeCompleto,
+        cpf: dadosRh.cpf,
+        matricula: dadosRh.matricula,
+        nome: dadosRh.nomeCompleto,
         tipoVinculo: chamado.tipoVinculo,
-        dataAdmissao: chamado.dadosRh.dataAdmissao,
+        dataAdmissao: dadosRh.dataAdmissao,
       },
       ctx,
     );
@@ -218,8 +224,8 @@ export function receberChamado(
   if (!itensValidos.ok) return itensValidos;
 
   const identidade = derivarIdentidadeDoEmail({
-    emailCorporativo: chamado.dadosRh.emailCorporativoSugerido,
-    nomeCompleto: chamado.dadosRh.nomeCompleto,
+    emailCorporativo: dadosRh.emailCorporativoSugerido,
+    nomeCompleto: dadosRh.nomeCompleto,
   });
 
   const pedidoId = ctx.novoId();
@@ -245,8 +251,7 @@ export function receberChamado(
       idExterno: sanitizarTexto(chamado.origem.idExterno.trim()),
     },
     tipoVinculo: chamado.tipoVinculo,
-    // Dados externos (RH/Jira): segredos colados por engano não são persistidos (regra 12).
-    dadosRh: { ...sanitizar(chamado.dadosRh), cpf: normalizarCpf(chamado.dadosRh.cpf) },
+    dadosRh,
     colaboradorId: colaborador.id,
     status: 'pendenteAprovacao',
     revisaoCorrenteId: revisao.id,

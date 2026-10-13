@@ -127,7 +127,10 @@ do Gia, guardas de autorização, identidade, pedido, operação/lease, execuç�
   só no cadastro do colaborador e nos parâmetros necessários ao provisionamento.
 - **Texto livre e dados externos:** observações e motivos com segredo são
   recusados (`SEGREDO_NAO_PERMITIDO`) antes de virar entidade; referências de
-  conferência e dados do RH são sanitizados antes de persistir.
+  conferência e dados do RH são sanitizados antes de persistir. Na ingestão, os
+  dados do RH são sanitizados uma única vez, e essa cópia alimenta pedido,
+  colaborador, identidade e resposta; `criarColaborador` também recusa nome ou
+  matrícula com segredo.
 - **Retomada segura (regra 4):** a execução retoma de `etapaAlcancada`,
   qualquer que seja o status. Cancelar devolve o item a `parcial` quando há
   etapa comprovada. Reconciliação parcial exige `etapaComprovada` na
