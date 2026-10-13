@@ -4,6 +4,7 @@ import {
   criarAtorDaSessao,
   criarAtorDeServico,
   receberChamado,
+  registrarResultadoOperacao,
   reservarOperacao,
   solicitarExecucao,
   verificarIdentidade,
@@ -397,18 +398,29 @@ export function operacaoDo(operacoes: readonly Operacao[], item: ItemAcesso): Op
   return operacao;
 }
 
-/** Reserva a operação como o worker padrão. */
+/** Reserva a operação como o worker padrão, informando o item real da dependência. */
 export function reservar(
   operacao: Operacao,
   agora: Instante = AGORA,
-  dependenciaConfirmada = true,
+  dependencia: ItemAcesso | null = null,
 ): Operacao {
   return valor(
-    reservarOperacao(
-      operacao,
-      { dependenciaConfirmada },
-      POLITICA_EXECUCAO_PADRAO,
-      ctxServico(agora),
-    ),
+    reservarOperacao(operacao, { dependencia }, POLITICA_EXECUCAO_PADRAO, ctxServico(agora)),
   ).operacao;
+}
+
+/** Confirma o item do AD de um cenário em execução (resultado real da última etapa). */
+export function confirmarAd(cenario: CenarioEmExecucao): ItemAcesso {
+  const ad = itemDo(cenario.itens, 'ad');
+  return valor(
+    registrarResultadoOperacao(
+      {
+        operacao: reservar(operacaoDo(cenario.operacoes, ad)),
+        item: ad,
+        resultado: resultadoConector({ etapa: 'adicionarGrupos' }),
+      },
+      POLITICA_EXECUCAO_PADRAO,
+      ctxServico(),
+    ),
+  ).item;
 }

@@ -51,6 +51,7 @@ const ESPERADO: Readonly<
     baixarDocumento: 'restrito',
     consultarRegras: 'total',
     alterarRegras: 'total',
+    corrigirEvidencia: 'total',
   },
   executor: {
     criarPedido: 'total',
@@ -115,9 +116,10 @@ describe('Permissões por papel', () => {
     expect(codigoErro(resultado)).toBe('PERMISSAO_NEGADA');
   });
 
-  it('só o serviço executor registra resultado de operação', () => {
+  it('só o serviço executor registra resultado de operação e consolida o pedido', () => {
     for (const papel of PAPEIS.filter((p) => p !== 'servicoExecutor')) {
       expect(nivelDeAcesso([papel], 'registrarResultadoOperacao'), papel).toBeNull();
+      expect(nivelDeAcesso([papel], 'consolidarExecucao'), papel).toBeNull();
     }
   });
 
@@ -159,6 +161,7 @@ describe('Perfil Administrador do Gia (ADR-0007)', () => {
         'alterarRegras',
         'baixarDocumento',
         'exportarAuditoria',
+        'corrigirEvidencia',
       ]),
     );
     for (const acao of funcionais) {
@@ -171,6 +174,7 @@ describe('Perfil Administrador do Gia (ADR-0007)', () => {
       'configurarSegredos',
       'liberarEscrita',
       'registrarResultadoOperacao',
+      'consolidarExecucao',
     ]);
     for (const acao of ACOES_FORA_DO_ADMINISTRADOR_GIA) {
       expect(MATRIZ_PERMISSOES.administradorGia[acao]).toBeUndefined();

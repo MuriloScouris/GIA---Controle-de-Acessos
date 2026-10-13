@@ -32,12 +32,7 @@ describe('Operação — lease e reserva', () => {
   it('reserva grava lease com expiração e conta a tentativa', () => {
     const { operacao } = operacaoAd();
     const reservada = valor(
-      reservarOperacao(
-        operacao,
-        { dependenciaConfirmada: true },
-        POLITICA_EXECUCAO_PADRAO,
-        ctxServico(),
-      ),
+      reservarOperacao(operacao, { dependencia: null }, POLITICA_EXECUCAO_PADRAO, ctxServico()),
     );
     expect(reservada.operacao).toMatchObject({
       status: 'reservada',
@@ -53,7 +48,7 @@ describe('Operação — lease e reserva', () => {
     const reservada = reservar(operacao);
     const segunda = reservarOperacao(
       reservada,
-      { dependenciaConfirmada: true },
+      { dependencia: null },
       POLITICA_EXECUCAO_PADRAO,
       ctxServico(AGORA, 'worker-2'),
     );
@@ -65,18 +60,13 @@ describe('Operação — lease e reserva', () => {
     const futura = { ...operacao, disponivelEm: depois(5_000) };
     expect(
       codigoErro(
-        reservarOperacao(
-          futura,
-          { dependenciaConfirmada: true },
-          POLITICA_EXECUCAO_PADRAO,
-          ctxServico(),
-        ),
+        reservarOperacao(futura, { dependencia: null }, POLITICA_EXECUCAO_PADRAO, ctxServico()),
       ),
     ).toBe('LEASE_INDISPONIVEL');
     expect(
       reservarOperacao(
         futura,
-        { dependenciaConfirmada: true },
+        { dependencia: null },
         POLITICA_EXECUCAO_PADRAO,
         ctxServico(depois(5_000)),
       ).ok,
@@ -87,12 +77,7 @@ describe('Operação — lease e reserva', () => {
     const { operacao } = operacaoAd();
     expect(
       codigoErro(
-        reservarOperacao(
-          operacao,
-          { dependenciaConfirmada: true },
-          POLITICA_EXECUCAO_PADRAO,
-          ctxExecutor(),
-        ),
+        reservarOperacao(operacao, { dependencia: null }, POLITICA_EXECUCAO_PADRAO, ctxExecutor()),
       ),
     ).toBe('PERMISSAO_NEGADA');
   });
@@ -185,15 +170,24 @@ describe('Operação — lease e reserva', () => {
     );
   });
 
-  it('cancela apenas operações ainda pendentes, com motivo', () => {
-    const { operacao } = operacaoAd();
-    expect(codigoErro(cancelarOperacao(operacao, '', ctxExecutor()))).toBe('MOTIVO_OBRIGATORIO');
-    expect(
-      valor(cancelarOperacao(operacao, 'pedido reaberto', ctxExecutor())).operacao.status,
-    ).toBe('cancelada');
-    expect(codigoErro(cancelarOperacao(reservar(operacao), 'tarde demais', ctxExecutor()))).toBe(
-      'TRANSICAO_INVALIDA',
+  it('cancela apenas operações ainda pendentes, com motivo, e devolve o item a pendente', () => {
+    const { operacao, item } = operacaoAd();
+    expect(codigoErro(cancelarOperacao({ operacao, item, motivo: '' }, ctxExecutor()))).toBe(
+      'MOTIVO_OBRIGATORIO',
     );
+    const cancelada = valor(
+      cancelarOperacao({ operacao, item, motivo: 'pedido reaberto' }, ctxExecutor()),
+    );
+    expect(cancelada.operacao.status).toBe('cancelada');
+    expect(cancelada.item).toMatchObject({ status: 'pendente', versao: item.versao + 1 });
+    expect(
+      codigoErro(
+        cancelarOperacao(
+          { operacao: reservar(operacao), item, motivo: 'tarde demais' },
+          ctxExecutor(),
+        ),
+      ),
+    ).toBe('TRANSICAO_INVALIDA');
   });
 
   it('estados finais da operação não têm saída', () => {

@@ -1,6 +1,8 @@
 import { describe, expect, expectTypeOf, it } from 'vitest';
 import {
+  comprovarAcessoManual,
   consolidarPedido,
+  registrarAcessoManual,
   registrarResultadoOperacao,
   reservarOperacao,
   solicitarExecucao,
@@ -24,6 +26,10 @@ import {
   configuracaoComEscrita,
   substituirItens,
   valor,
+  AGORA,
+  confirmarAd,
+  depois,
+  contexto,
 } from '../apoio/fabricas.js';
 
 describe('Regra 7 — M365 não cria usuário', () => {
@@ -53,9 +59,11 @@ describe('Regra 7 — M365 não cria usuário', () => {
   it('a operação do M365 não é reservada enquanto o AD não estiver confirmado', () => {
     const cenario = cenarioEmExecucao({ sistemas: ['ad', 'm365'] });
     const operacao = operacaoDo(cenario.operacoes, itemDo(cenario.itens, 'm365'));
+    const ad = itemDo(cenario.itens, 'ad');
+    expect(ad.status).toBe('emExecucao');
     const resultado = reservarOperacao(
       operacao,
-      { dependenciaConfirmada: false },
+      { dependencia: ad },
       POLITICA_EXECUCAO_PADRAO,
       ctxServico(),
     );
@@ -83,7 +91,7 @@ describe('Regra 7 — M365 não cria usuário', () => {
   it('identidade ainda não sincronizada no Entra: aguarda sem consumir tentativa', () => {
     const cenario = cenarioEmExecucao({ sistemas: ['ad', 'm365'] });
     const m365 = itemDo(cenario.itens, 'm365');
-    const operacao = reservar(operacaoDo(cenario.operacoes, m365));
+    const operacao = reservar(operacaoDo(cenario.operacoes, m365), AGORA, confirmarAd(cenario));
     const registrado = valor(
       registrarResultadoOperacao(
         {
@@ -114,7 +122,7 @@ describe('Regra 7 — M365 não cria usuário', () => {
     const m365 = itemDo(cenario.itens, 'm365');
     const resultado = registrarResultadoOperacao(
       {
-        operacao: reservar(operacaoDo(cenario.operacoes, m365)),
+        operacao: reservar(operacaoDo(cenario.operacoes, m365), AGORA, confirmarAd(cenario)),
         item: m365,
         // Simula um adaptador defeituoso que reporta etapa de criação.
         resultado: resultadoConector({ etapa: 'criarUsuario' }),
@@ -151,5 +159,156 @@ describe('Regra 7 — M365 não cria usuário', () => {
     expect(consolidado.operacoes[0]).toMatchObject({ sistema: 'm365', status: 'cancelada' });
     expect(consolidado.itens[0]).toMatchObject({ sistema: 'm365', status: 'pendente' });
     expect(consolidado.pedido.status).toBe('concluidoComErros');
+  });
+
+  describe('guarda de dependência: item real do AD, não booleano', () => {
+    it('reserva sem o item do AD é recusada; booleano antigo não é aceito', () => {
+      const cenario = cenarioEmExecucao({ sistemas: ['ad', 'm365'] });
+      const operacao = operacaoDo(cenario.operacoes, itemDo(cenario.itens, 'm365'));
+      expect(
+        codigoErro(
+          reservarOperacao(operacao, { dependencia: null }, POLITICA_EXECUCAO_PADRAO, ctxServico()),
+        ),
+      ).toBe('DEPENDENCIA_PENDENTE');
+      const legado = reservarOperacao(
+        operacao,
+        // @ts-expect-error — `dependenciaConfirmada: true` não é mais aceito como prova.
+        { dependenciaConfirmada: true },
+        POLITICA_EXECUCAO_PADRAO,
+        ctxServico(),
+      );
+      expect(codigoErro(legado)).toBe('DEPENDENCIA_PENDENTE');
+    });
+
+    it('item de outro pedido, outra revisão ou outro sistema não serve de dependência', () => {
+      const cenario = cenarioEmExecucao({ sistemas: ['ad', 'm365', 'jira'] });
+      const operacao = operacaoDo(cenario.operacoes, itemDo(cenario.itens, 'm365'));
+      const adConfirmado = confirmarAd(cenario);
+      const forjados = [
+        { ...adConfirmado, id: 'outro-item' },
+        { ...adConfirmado, pedidoId: 'outro-pedido' },
+        { ...adConfirmado, revisaoId: 'outra-revisao' },
+        { ...itemDo(cenario.itens, 'jira'), id: adConfirmado.id, status: 'confirmado' as const },
+      ];
+      for (const dependencia of forjados) {
+        expect(
+          codigoErro(
+            reservarOperacao(operacao, { dependencia }, POLITICA_EXECUCAO_PADRAO, ctxServico()),
+          ),
+        ).toBe('DEPENDENCIA_INVALIDA');
+      }
+      expect(
+        reservarOperacao(
+          operacao,
+          { dependencia: adConfirmado },
+          POLITICA_EXECUCAO_PADRAO,
+          ctxServico(),
+        ).ok,
+      ).toBe(true);
+    });
+
+    it('AD registrado manualmente não libera a reserva do M365', () => {
+      const cenario = cenarioEmExecucao({ sistemas: ['ad', 'm365'] });
+      const operacao = operacaoDo(cenario.operacoes, itemDo(cenario.itens, 'm365'));
+      const adManual = { ...itemDo(cenario.itens, 'ad'), status: 'registradoManual' as const };
+      expect(
+        codigoErro(
+          reservarOperacao(
+            operacao,
+            { dependencia: adManual },
+            POLITICA_EXECUCAO_PADRAO,
+            ctxServico(),
+          ),
+        ),
+      ).toBe('DEPENDENCIA_NAO_COMPROVADA');
+    });
+
+    it('AD registrado manualmente não libera a solicitação do M365 até ser comprovado por conferência', () => {
+      const aprovado = cenarioAprovado({ sistemas: ['ad', 'm365'] });
+      const ad = itemDo(aprovado.itens, 'ad');
+      const m365 = itemDo(aprovado.itens, 'm365');
+      const adManual = valor(
+        registrarAcessoManual(
+          { pedido: aprovado.pedido, item: ad, observacao: 'conta criada pelo suporte' },
+          ad.versao,
+          ctxExecutor(),
+        ),
+      ).item;
+      const solicitar = (adAtual: typeof ad) =>
+        solicitarExecucao(
+          {
+            pedido: aprovado.pedido,
+            revisao: aprovado.revisao,
+            itens: [adAtual, m365],
+            operacoesExistentes: [],
+            configuracao: configuracaoComEscrita(),
+            modo: 'real',
+            itemIds: [m365.id],
+          },
+          aprovado.pedido.versao,
+          ctxExecutor(),
+        );
+      expect(codigoErro(solicitar(adManual))).toBe('DEPENDENCIA_NAO_COMPROVADA');
+
+      const conferencia = {
+        modo: 'real' as const,
+        contaExiste: true,
+        acessosEncontrados: ['grupo:GG_Financeiro', 'grupo:GG_VPN'],
+        referenciaExterna: 'CN=ana.souza',
+        conferidaEm: depois(60_000),
+      };
+      const ctx = ctxExecutor(depois(60_000));
+      expect(
+        codigoErro(
+          comprovarAcessoManual(
+            {
+              pedido: aprovado.pedido,
+              item: adManual,
+              conferencia: { ...conferencia, acessosEncontrados: [] },
+            },
+            adManual.versao,
+            ctx,
+          ),
+        ),
+      ).toBe('EXISTENCIA_INCOMPLETA');
+      expect(
+        codigoErro(
+          comprovarAcessoManual(
+            {
+              pedido: aprovado.pedido,
+              item: adManual,
+              conferencia: { ...conferencia, modo: 'simulado' },
+            },
+            adManual.versao,
+            ctx,
+          ),
+        ),
+      ).toBe('CONFERENCIA_SIMULADA');
+      expect(
+        codigoErro(
+          comprovarAcessoManual(
+            { pedido: aprovado.pedido, item: adManual, conferencia },
+            adManual.versao,
+            contexto(['revisor']),
+          ),
+        ),
+      ).toBe('PERMISSAO_NEGADA');
+
+      const comprovado = valor(
+        comprovarAcessoManual(
+          { pedido: aprovado.pedido, item: adManual, conferencia },
+          adManual.versao,
+          ctx,
+        ),
+      );
+      expect(comprovado.item.status).toBe('confirmado');
+      expect(comprovado.eventos[0]?.tipo).toBe('acessoManualComprovado');
+
+      const execucao = valor(solicitar(comprovado.item));
+      const operacao = execucao.operacoes[0]!;
+      expect(operacao.dependeDeItemId).toBe(ad.id);
+      expect(execucao.itens[0]?.status).toBe('emExecucao');
+      expect(reservar(operacao, AGORA, comprovado.item).status).toBe('reservada');
+    });
   });
 });

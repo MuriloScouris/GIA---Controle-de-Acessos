@@ -47,7 +47,11 @@ describe('Execução — fluxo completo', () => {
       const registrado = valor(
         registrarResultadoOperacao(
           {
-            operacao: reservar(operacaoDo(cenario.operacoes, item)),
+            operacao: reservar(
+              operacaoDo(cenario.operacoes, item),
+              undefined,
+              sistema === 'm365' ? itemDo(itens, 'ad') : null,
+            ),
             item,
             resultado: resultadoConector({
               etapa: ultimaEtapa(sistema),
