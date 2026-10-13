@@ -3,7 +3,6 @@ import {
   contemSegredo,
   criarAtorDaSessao,
   falha,
-  mascararCpfs,
   rejeitarAtorNoPayload,
   sucesso,
   type CodigoErro,
@@ -13,6 +12,7 @@ import {
   type Uuid,
 } from '@gia/dominio';
 import type { FastifyReply, FastifyRequest } from 'fastify';
+import { mascararDadosPessoais } from '../aplicacao/dados-pessoais.js';
 import type { Relogio } from '../aplicacao/portas.js';
 import type { SessaoAberta, SessoesSimuladas } from '../sessao/sessoes-simuladas.js';
 
@@ -53,7 +53,9 @@ export function corpoErro(erro: ErroDominio): RespostaErro {
     ok: false,
     codigo: erro.codigo,
     mensagem: erro.mensagem,
-    ...(erro.detalhes === undefined ? {} : { detalhes: mascararCpfs({ ...erro.detalhes }) }),
+    ...(erro.detalhes === undefined
+      ? {}
+      : { detalhes: mascararDadosPessoais({ ...erro.detalhes }) }),
   };
 }
 

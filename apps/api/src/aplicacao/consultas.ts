@@ -8,10 +8,6 @@ import type {
 import {
   exigirPermissao,
   falha,
-  mascararCpf,
-  mascararCpfEmTexto,
-  mascararCpfs,
-  nivelDeAcesso,
   sucesso,
   type ContextoComando,
   type ItemAcesso,
@@ -20,6 +16,7 @@ import {
   type Resultado,
   type Uuid,
 } from '@gia/dominio';
+import { projetarParaAtor, type DadosSensiveis } from './dados-pessoais.js';
 import type { DependenciasCasosDeUso } from './dependencias.js';
 import type { Repositorios } from './portas.js';
 
@@ -44,15 +41,13 @@ async function recorteDeLeitura(
   return sucesso((pedido) => abertosPeloAtor.has(pedido.id));
 }
 
-/**
- * CPF completo só para quem edita a proposta (precisa reenviar os parâmetros
- * do AD) ou tem acesso total a dados pessoais. Os demais veem mascarado.
- */
-function podeVerCpf(ctx: ContextoComando): boolean {
-  return (
-    exigirPermissao(ctx.ator, 'editarProposta').ok ||
-    nivelDeAcesso(ctx.ator.papeis, 'consultarDadosPessoais') === 'total'
-  );
+/** Matrículas da pessoa do pedido (RH e cadastro), para mascarar onde aparecerem em texto. */
+async function sensiveisDoPedido(
+  tx: Repositorios,
+  pedido: PedidoAdmissao,
+): Promise<DadosSensiveis> {
+  const colaborador = await tx.colaboradores.porId(pedido.colaboradorId);
+  return { matriculas: [pedido.dadosRh.matricula, colaborador?.matricula ?? null] };
 }
 
 async function carregarPedidoVisivel(
@@ -68,10 +63,6 @@ async function carregarPedidoVisivel(
     : falha('NAO_ENCONTRADO', { recurso: 'pedido' });
 }
 
-function textoSemCpf(texto: string | null): string | null {
-  return texto === null ? null : mascararCpfEmTexto(texto);
-}
-
 function resumoOperacao(operacao: Operacao): OperacaoResumo {
   return {
     id: operacao.id,
@@ -80,7 +71,7 @@ function resumoOperacao(operacao: Operacao): OperacaoResumo {
     status: operacao.status,
     efeito: operacao.efeito,
     codigo: operacao.codigo,
-    mensagem: textoSemCpf(operacao.mensagem),
+    mensagem: operacao.mensagem,
     tentativas: operacao.tentativas,
     criadaEm: operacao.criadaEm,
     atualizadaEm: operacao.atualizadaEm,
@@ -94,10 +85,10 @@ function resultadoItem(item: ItemAcesso, operacoes: readonly Operacao[]): Result
     status: item.status,
     versao: item.versao,
     idExterno: item.idExterno,
-    mensagem: textoSemCpf(item.mensagem),
+    mensagem: item.mensagem,
     etapaAlcancada: item.etapaAlcancada,
     confirmadoEm: item.confirmadoEm,
-    observacaoManual: textoSemCpf(item.observacaoManual),
+    observacaoManual: item.observacaoManual,
     herdadoDeItemId: item.herdadoDeItemId,
     operacoes: operacoes
       .filter((operacao) => operacao.itemId === item.id)
@@ -116,8 +107,9 @@ export async function listarPedidos(
     const pedidos = (await tx.pedidos.todos())
       .filter(recorte.valor)
       .sort((a, b) => b.criadoEm.localeCompare(a.criadoEm) || a.id.localeCompare(b.id));
-    return sucesso({
-      pedidos: pedidos.map((pedido) => ({
+    const resumos: ListaPedidos['pedidos'] = [];
+    for (const pedido of pedidos) {
+      const resumo = {
         id: pedido.id,
         idExterno: pedido.origem.idExterno,
         tipoVinculo: pedido.tipoVinculo,
@@ -126,8 +118,10 @@ export async function listarPedidos(
         nomeColaborador: pedido.dadosRh.nomeCompleto,
         criadoEm: pedido.criadoEm,
         atualizadoEm: pedido.atualizadoEm,
-      })),
-    });
+      };
+      resumos.push(projetarParaAtor(ctx, resumo, await sensiveisDoPedido(tx, pedido)));
+    }
+    return sucesso({ pedidos: resumos });
   });
 }
 
@@ -146,10 +140,9 @@ export async function detalharPedido(
       (item) => item.revisaoId === revisao.id,
     );
     const operacoes = await tx.operacoes.doPedido(pedido.id);
-    const cpfVisivel = podeVerCpf(ctx);
     const { identidade, verificacaoIdentidade, pendenciaIdentidade, aprovadaPor } = revisao;
 
-    return sucesso({
+    const detalhe: PedidoDetalhe = {
       id: pedido.id,
       origem: { sistema: pedido.origem.sistema, idExterno: pedido.origem.idExterno },
       tipoVinculo: pedido.tipoVinculo,
@@ -159,10 +152,7 @@ export async function detalharPedido(
       criadoEm: pedido.criadoEm,
       atualizadoEm: pedido.atualizadoEm,
       colaboradorId: pedido.colaboradorId,
-      dadosRh: {
-        ...pedido.dadosRh,
-        cpf: cpfVisivel ? pedido.dadosRh.cpf : mascararCpf(pedido.dadosRh.cpf),
-      },
+      dadosRh: { ...pedido.dadosRh },
       revisao: {
         id: revisao.id,
         numero: revisao.numero,
@@ -186,14 +176,16 @@ export async function detalharPedido(
               },
         itens: revisao.itens.map((item) => ({
           sistema: item.sistema,
-          parametros: { ...(cpfVisivel ? item.parametros : mascararCpfs(item.parametros)) },
+          parametros: { ...item.parametros },
           origemSugestao: item.origemSugestao,
         })),
         aprovadaPor: aprovadaPor === null ? null : { id: aprovadaPor.id, nome: aprovadaPor.nome },
         aprovadaEm: revisao.aprovadaEm,
       },
       itens: itens.map((item) => resultadoItem(item, operacoes)),
-    });
+    };
+    // A projeção inteira, não só o campo `cpf`: texto livre também carrega dado pessoal.
+    return sucesso(projetarParaAtor(ctx, detalhe, await sensiveisDoPedido(tx, pedido)));
   });
 }
 
@@ -211,12 +203,13 @@ export async function consultarItens(
       (item) => item.revisaoId === pedido.revisaoCorrenteId,
     );
     const operacoes = await tx.operacoes.doPedido(pedido.id);
-    return sucesso({
+    const resultado: ResultadoItens = {
       pedidoId: pedido.id,
       status: pedido.status,
       versao: pedido.versao,
       itens: itens.map((item) => resultadoItem(item, operacoes)),
-    });
+    };
+    return sucesso(projetarParaAtor(ctx, resultado, await sensiveisDoPedido(tx, pedido)));
   });
 }
 
@@ -232,6 +225,7 @@ export async function consultarItem(
     if (!carregado.ok) return carregado;
     const item = (await tx.itens.doPedido(pedidoId)).find((candidato) => candidato.id === itemId);
     if (!item) return falha('NAO_ENCONTRADO', { recurso: 'item' });
-    return sucesso(resultadoItem(item, await tx.operacoes.doPedido(pedidoId)));
+    const resultado = resultadoItem(item, await tx.operacoes.doPedido(pedidoId));
+    return sucesso(projetarParaAtor(ctx, resultado, await sensiveisDoPedido(tx, carregado.valor)));
   });
 }

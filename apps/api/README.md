@@ -44,8 +44,14 @@ regra de negócio; `501` ação ainda indisponível.
   não habilita CORS.
 - **Permissão primeiro:** a permissão da ação é checada antes de carregar o
   pedido, então `403` não revela se ele existe.
-- **Dados pessoais:** CPF completo só para quem edita a proposta (revisor,
-  Administrador do Gia); os demais veem `123.***.***-09`.
+- **Dados pessoais:** valor completo só para quem edita a proposta (revisor/
+  aprovador) ou tem acesso total a dados pessoais (Administrador do Gia). Para os
+  demais (executor, auditor, solicitante), a **projeção inteira** de cada resposta
+  (lista, detalhe, itens, histórico, relatório de importação) é mascarada
+  (`src/aplicacao/dados-pessoais.ts`): todo CPF válido em qualquer texto vira
+  `123.***.***-09`, e a matrícula da pessoa vira `***01` no campo próprio e onde
+  aparecer em texto livre (motivo, nome, gestor, observação, chave da issue).
+  UUIDs não são alterados. Detalhes de erro passam pela mesma máscara.
 - **Escrita externa desligada:** a configuração só aceita `GIA_ESCRITA_EXTERNA=false`,
   então as operações nascem em modo `simulado` (regras 8 e 9). Em modo real, o
   domínio exige a liberação por sistema (`ESCRITA_NAO_LIBERADA`).

@@ -16,6 +16,7 @@ import {
   type Revisao,
   type TipoVinculo,
 } from '@gia/dominio';
+import { projetarParaAtor } from './dados-pessoais.js';
 import type { DependenciasCasosDeUso } from './dependencias.js';
 import { revalidarIdentidade } from './identidade.js';
 import type { Repositorios } from './portas.js';
@@ -129,7 +130,8 @@ export async function importarChamadosJira(
       });
     }
   }
-  return sucesso(relatorio);
+  // Chaves e tipos vêm do Jira: CPF colado neles também sai mascarado para quem não tem permissão plena.
+  return sucesso(projetarParaAtor(ctx, relatorio));
 }
 
 async function receberUm(
