@@ -6,7 +6,7 @@ import { criarApp } from './app.js';
 /** Valida a configuração antes de abrir a porta; falha com erro sanitizado se inválida. */
 export async function iniciarApi(env: VariaveisAmbiente = process.env): Promise<FastifyInstance> {
   const config = carregarConfiguracaoApi(env);
-  const app = criarApp();
+  const app = criarApp({ ambiente: config.ambiente });
   await app.listen({ port: config.porta, host: '127.0.0.1' });
   return app;
 }
