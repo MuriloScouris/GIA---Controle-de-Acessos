@@ -147,6 +147,20 @@ export function proximaEtapa(
  */
 export const DEPENDENCIA_DE_SISTEMA: Readonly<Partial<Record<Sistema, Sistema>>> = { m365: 'ad' };
 
+/**
+ * Sistemas do conjunto cuja dependência não está no mesmo conjunto (ex.: M365
+ * sem AD). Vale para configuração por vínculo, revisão e execução: o M365 só
+ * existe ancorado num item AD rastreável do mesmo pedido.
+ */
+export function sistemasSemDependencia(
+  sistemas: readonly Sistema[],
+): readonly { readonly sistema: Sistema; readonly exige: Sistema }[] {
+  return sistemas.flatMap((sistema) => {
+    const exige = DEPENDENCIA_DE_SISTEMA[sistema];
+    return exige !== undefined && !sistemas.includes(exige) ? [{ sistema, exige }] : [];
+  });
+}
+
 /** Etapas que criam conta de usuário; o M365 não tem nenhuma (regra 7). */
 export const ETAPAS_DE_CRIACAO_DE_USUARIO: readonly string[] = [
   'criarContaDesabilitada',

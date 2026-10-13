@@ -37,6 +37,7 @@ export type CodigoErro =
   | 'DEPENDENCIA_PENDENTE'
   | 'DEPENDENCIA_INVALIDA'
   | 'DEPENDENCIA_NAO_COMPROVADA'
+  | 'DEPENDENCIA_DE_SISTEMA_AUSENTE'
   | 'ETAPA_DESCONHECIDA'
   | 'M365_NAO_CRIA_USUARIO'
   | 'CONFERENCIA_SIMULADA'
@@ -89,6 +90,8 @@ export const MENSAGENS_ERRO: Readonly<Record<CodigoErro, string>> = {
     'O item informado como dependência não é o item do qual a operação depende.',
   DEPENDENCIA_NAO_COMPROVADA:
     'O AD precisa estar confirmado pelo Gia antes do M365. Acesso registrado manualmente não comprova a identidade; comprove-o por conferência.',
+  DEPENDENCIA_DE_SISTEMA_AUSENTE:
+    'O Microsoft 365 exige o Active Directory junto: ele só licencia a identidade criada pelo AD e rastreada no mesmo pedido.',
   ETAPA_DESCONHECIDA: 'Etapa não reconhecida para o sistema.',
   M365_NAO_CRIA_USUARIO:
     'O Microsoft 365 não cria usuários; ele licencia a identidade sincronizada pelo AD.',

@@ -112,6 +112,12 @@ do Gia, guardas de autorização, identidade, pedido, operação/lease, execuç�
   comprovado por `comprovarAcessoManual`, com conferência real e completa. A
   sincronização AD → Entra é verificada pela primeira etapa do conector M365
   (`IDENTIDADE_NAO_SINCRONIZADA` → aguarda sem consumir tentativa).
+- **M365 nunca isolado (regra 7):** M365 só existe ancorado num item AD do
+  mesmo pedido. A configuração por vínculo e a proposta recusam M365 sem AD
+  (`DEPENDENCIA_DE_SISTEMA_AUSENTE`); na ingestão, a sugestão é descartada e
+  registrada. Aprovação, solicitação (real e simulada), reserva e registro de
+  resultado reverificam. Não há prova alternativa de identidade pré-existente:
+  M365 de quem já tem conta segue o fluxo de acesso avulso (manual).
 - **Terceiros:** por padrão nenhum sistema gera item para `terceiro`.
 - **Documento:** só itens `confirmado` de pedido `concluido`; registro manual e
   simulação não entram.

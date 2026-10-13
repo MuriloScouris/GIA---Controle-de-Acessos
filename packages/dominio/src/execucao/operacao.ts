@@ -148,6 +148,19 @@ export function exigirDependenciaConfirmada(
   operacao: Operacao,
   dependencia: ItemAcesso | null,
 ): Resultado<true> {
+  const sistemaExigido = DEPENDENCIA_DE_SISTEMA[operacao.sistema];
+  // Regra 7: operação real de M365 sem item AD rastreável nunca roda.
+  if (
+    sistemaExigido !== undefined &&
+    operacao.modo === 'real' &&
+    operacao.dependeDeItemId === null
+  ) {
+    return falha('DEPENDENCIA_DE_SISTEMA_AUSENTE', {
+      operacaoId: operacao.id,
+      sistema: operacao.sistema,
+      exige: sistemaExigido,
+    });
+  }
   if (operacao.dependeDeItemId === null) return sucesso(true);
   // `!dependencia` também recusa chamadas antigas que passavam só um booleano.
   if (!dependencia) {

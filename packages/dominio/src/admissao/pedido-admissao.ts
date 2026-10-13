@@ -29,11 +29,12 @@ import {
   sistemaHabilitadoParaVinculo,
   type ConfiguracaoSistemas,
 } from '../sistemas/configuracao.js';
-import type { Sistema, TipoVinculo } from '../sistemas/sistemas.js';
+import { sistemasSemDependencia, type Sistema, type TipoVinculo } from '../sistemas/sistemas.js';
 import { criarItensDaRevisao, STATUS_ITEM_EM_ANDAMENTO, type ItemAcesso } from './item-acesso.js';
 import {
   alinharItensAIdentidade,
   aprovarRevisao,
+  exigirDependenciasNaRevisao,
   exigirRascunho,
   validarItensPropostos,
   type ItemProposto,
@@ -187,7 +188,7 @@ export function receberChamado(
     eventos.push(...criado.valor.eventos);
   }
 
-  const sistemasDescartados = entrada.itensSugeridos
+  const foraDoVinculo = entrada.itensSugeridos
     .filter(
       (item) =>
         !sistemaHabilitadoParaVinculo(
@@ -197,6 +198,13 @@ export function receberChamado(
         ),
     )
     .map((item) => item.sistema);
+  // Regra 7: sugestão de M365 sem o AD no mesmo pedido também é descartada.
+  const semDependencia = sistemasSemDependencia(
+    entrada.itensSugeridos
+      .map((item) => item.sistema)
+      .filter((sistema) => !foraDoVinculo.includes(sistema)),
+  ).map(({ sistema }) => sistema);
+  const sistemasDescartados = [...foraDoVinculo, ...semDependencia];
   const habilitados = entrada.itensSugeridos.filter(
     (item) => !sistemasDescartados.includes(item.sistema),
   );
@@ -497,6 +505,8 @@ export function aprovarPedido(
   if (entrada.colaborador.id !== pedido.colaboradorId) {
     return falha('DADO_INVALIDO', { motivo: 'colaborador não corresponde ao pedido' });
   }
+  const dependencias = exigirDependenciasNaRevisao(revisao.itens);
+  if (!dependencias.ok) return dependencias;
   const identidade = exigirIdentidadeLiberada(revisao.identidade, revisao.verificacaoIdentidade);
   if (!identidade.ok) return identidade;
 

@@ -5,7 +5,12 @@ import { falha, sucesso, type ErroDominio, type Resultado } from '../comum/resul
 import { contemSegredo } from '../comum/sanitizacao.js';
 import type { Instante, Uuid } from '../comum/tipos.js';
 import { sistemaHabilitadoParaVinculo, type SistemasPorVinculo } from '../sistemas/configuracao.js';
-import type { ParametrosSistema, Sistema, TipoVinculo } from '../sistemas/sistemas.js';
+import {
+  sistemasSemDependencia,
+  type ParametrosSistema,
+  type Sistema,
+  type TipoVinculo,
+} from '../sistemas/sistemas.js';
 
 /**
  * Revisão: a proposta (identidade + itens) que o operador ajusta e aprova.
@@ -66,7 +71,17 @@ export function validarItensPropostos(
       return falha('SEGREDO_NAO_PERMITIDO', { sistema: item.sistema });
     }
   }
+  const dependencias = exigirDependenciasNaRevisao(itens);
+  if (!dependencias.ok) return dependencias;
   return sucesso(itens);
+}
+
+/** Regra 7: M365 só entra numa revisão que também tem o item do AD. */
+export function exigirDependenciasNaRevisao(itens: readonly ItemProposto[]): Resultado<true> {
+  const semDependencia = sistemasSemDependencia(itens.map((item) => item.sistema));
+  return semDependencia.length === 0
+    ? sucesso(true)
+    : falha('DEPENDENCIA_DE_SISTEMA_AUSENTE', { semDependencia });
 }
 
 /** Mantém os campos de identidade dos parâmetros iguais à identidade da revisão. */

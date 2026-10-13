@@ -3,7 +3,7 @@ import { congelarProfundo } from '../comum/imutavel.js';
 import { falha, sucesso, type Resultado } from '../comum/resultado.js';
 import { exigirVersao, proximaVersao, VERSAO_INICIAL } from '../comum/versao.js';
 import { eventoDoGia, type Evento } from '../eventos/evento.js';
-import { SISTEMAS, type Sistema, type TipoVinculo } from './sistemas.js';
+import { SISTEMAS, sistemasSemDependencia, type Sistema, type TipoVinculo } from './sistemas.js';
 
 /**
  * Regra 8 — Escrita desligada por padrão. Cada sistema e cada tipo de escrita
@@ -110,6 +110,10 @@ export function alterarSistemasPorVinculo(
   if (!versao.ok) return versao;
   const invalidos = alteracao.sistemas.filter((sistema) => !SISTEMAS.includes(sistema));
   if (invalidos.length > 0) return falha('DADO_INVALIDO', { sistemasInvalidos: invalidos });
+  const semDependencia = sistemasSemDependencia(alteracao.sistemas);
+  if (semDependencia.length > 0) {
+    return falha('DEPENDENCIA_DE_SISTEMA_AUSENTE', { vinculo: alteracao.vinculo, semDependencia });
+  }
 
   const antes = configuracao.sistemasPorVinculo[alteracao.vinculo];
   const depois = [...new Set(alteracao.sistemas)];

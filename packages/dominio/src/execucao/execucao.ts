@@ -167,9 +167,17 @@ export function solicitarExecucao(
     let dependeDeItemId: string | null = null;
     const sistemaDependencia = DEPENDENCIA_DE_SISTEMA[item.sistema];
     let aguardaDependencia = false;
-    if (modo === 'real' && sistemaDependencia !== undefined) {
+    if (sistemaDependencia !== undefined) {
       const dependencia = itensDaRevisao.find((outro) => outro.sistema === sistemaDependencia);
-      if (dependencia) {
+      // Regra 7: sem item AD rastreável no pedido não há M365, nem simulado.
+      if (!dependencia) {
+        return falha('DEPENDENCIA_DE_SISTEMA_AUSENTE', {
+          itemId: item.id,
+          sistema: item.sistema,
+          exige: sistemaDependencia,
+        });
+      }
+      if (modo === 'real') {
         // Regra 7: só AD `confirmado` pelo Gia (ou no mesmo lote) libera o M365.
         // A operação sempre aponta para o item real, que a reserva confere de novo.
         if (dependencia.status === 'registradoManual') {
@@ -309,6 +317,19 @@ export function registrarResultadoOperacao(
   const lease = exigirLeaseValido(operacao, ctx);
   if (!lease.ok) return lease;
   if (item.id !== operacao.itemId) return falha('ITEM_FORA_DO_PEDIDO', { itemId: item.id });
+  const sistemaExigido = DEPENDENCIA_DE_SISTEMA[operacao.sistema];
+  // Regra 7, defesa em profundidade: resultado real de M365 sem âncora no AD não é gravado.
+  if (
+    sistemaExigido !== undefined &&
+    operacao.modo === 'real' &&
+    operacao.dependeDeItemId === null
+  ) {
+    return falha('DEPENDENCIA_DE_SISTEMA_AUSENTE', {
+      operacaoId: operacao.id,
+      sistema: operacao.sistema,
+      exige: sistemaExigido,
+    });
+  }
   if (operacao.modo === 'real' && STATUS_ITEM_CONCLUIDO.includes(item.status)) {
     return falha('ITEM_JA_CONFIRMADO', { itemId: item.id });
   }
