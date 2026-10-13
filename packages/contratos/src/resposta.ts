@@ -24,12 +24,16 @@ export const respostaSucessoSchema = z.strictObject({
   versao: versaoSchema,
   /** Presente quando o comando enfileirou uma operação ("aceita"). */
   operacaoId: uuidSchema.nullable(),
+  /** Todas as operações enfileiradas pelo comando, quando ele cria mais de uma. */
+  operacaoIds: z.array(uuidSchema).optional(),
 });
 
 export const respostaErroSchema = z.strictObject({
   ok: z.literal(false),
   codigo: codigoErroSchema,
   mensagem: textoSchema(1000),
+  /** Detalhes sanitizados (sem segredos e com CPF mascarado), quando ajudam a corrigir. */
+  detalhes: z.record(z.string(), z.unknown()).optional(),
 });
 
 export const respostaSchema = z.discriminatedUnion('ok', [
