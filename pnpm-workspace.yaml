@@ -1,0 +1,41 @@
+packages:
+  - apps/*
+  - packages/*
+  - tests
+
+catalog:
+  '@eslint/js': ^10.0.1
+  '@types/node': ^22.0.0
+  '@types/react': ^19.2.0
+  '@types/react-dom': ^19.2.0
+  '@vitejs/plugin-react': ^6.1.2
+  eslint: ^10.12.0
+  eslint-plugin-react-hooks: ^7.1.1
+  fastify: ^5.12.7
+  globals: ^17.0.0
+  prettier: ^3.9.10
+  react: ^19.3.0
+  react-aria-components: ^1.22.1
+  react-dom: ^19.3.0
+  react-router: ^8.4.0
+  turbo: ^2.11.7
+  typescript: ~6.0.3
+  typescript-eslint: ^8.71.2
+  vite: ^8.3.4
+  vitest: ^5.0.4
+  zod: ^4.6.7
+
+minimumReleaseAgeExclude:
+  - '@typescript-eslint/eslint-plugin@8.71.2'
+  - '@typescript-eslint/parser@8.71.2'
+  - '@typescript-eslint/project-service@8.71.2'
+  - '@typescript-eslint/scope-manager@8.71.2'
+  - '@typescript-eslint/tsconfig-utils@8.71.2'
+  - '@typescript-eslint/type-utils@8.71.2'
+  - '@typescript-eslint/types@8.71.2'
+  - '@typescript-eslint/typescript-estree@8.71.2'
+  - '@typescript-eslint/utils@8.71.2'
+  - '@typescript-eslint/visitor-keys@8.71.2'
+  - fastify@5.12.7
+  - typescript-eslint@8.71.2
+  - zod@4.6.7

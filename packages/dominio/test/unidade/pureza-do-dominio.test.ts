@@ -23,6 +23,14 @@ describe('Domínio sem banco, rede, conectores ou framework', () => {
     expect(fontes.length).toBeGreaterThan(10);
   });
 
+  it('não declara dependências de runtime', () => {
+    const pacote = JSON.parse(
+      readFileSync(fileURLToPath(new URL('../../package.json', import.meta.url)), 'utf8'),
+    ) as { name: string; dependencies?: Record<string, string> };
+    expect(pacote.name).toBe('@gia/dominio');
+    expect(pacote.dependencies ?? {}).toEqual({});
+  });
+
   it('só importa arquivos do próprio pacote', () => {
     const externos = fontes.flatMap(({ arquivo, codigo }) =>
       [...codigo.matchAll(/(?:import|export)[^'"]*from\s+['"]([^'"]+)['"]/g)]

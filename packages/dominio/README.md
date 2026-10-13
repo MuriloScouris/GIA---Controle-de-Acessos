@@ -5,19 +5,23 @@ TypeScript `strict`: **sem banco, rede, conectores, relógio, aleatoriedade ou
 framework**. Casos de uso e adaptadores (API, worker, persistência, conectores)
 dependem deste pacote; ele não depende de nada.
 
-A pureza é garantida por três camadas: regra `no-restricted-imports` do ESLint
-(só imports relativos em `src/`), `tsconfig` sem tipos do Node em `src/` e o
-teste `test/unidade/pureza-do-dominio.test.ts`.
+A pureza é garantida por três camadas: regras `no-restricted-imports`,
+`no-restricted-globals` e `no-restricted-syntax` no `eslint.config.js` da raiz
+(bloco `packages/dominio/src`), `tsconfig` de `src/` sem tipos do Node
+(`"types": []`) e o teste `test/unidade/pureza-do-dominio.test.ts`.
 
 ## Como rodar
 
+A partir da raiz do monorepo (pnpm workspace + Turborepo, ADR-0006):
+
 ```sh
 pnpm install
-pnpm check        # typecheck + lint + format:check + test + build
+pnpm check                              # format:check + lint + typecheck + test + build
+pnpm --filter @gia/dominio test         # só o domínio
 ```
 
-Scripts individuais: `typecheck`, `lint`, `format:check`, `test`, `build`
-(nomes alinhados ao pipeline do Turborepo, ADR-0006).
+O `typecheck` do pacote verifica `src/` (sem tipos do Node) e `test/`
+(`test/tsconfig.json`, com tipos do Node para o teste de pureza).
 
 ## Modelo
 

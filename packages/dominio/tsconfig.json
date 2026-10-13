@@ -1,27 +1,13 @@
 {
+  "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "target": "ES2023",
-    "lib": ["ES2023"],
+    "rootDir": "src",
+    "outDir": "dist",
+    "noEmit": true,
     "types": [],
-    "module": "NodeNext",
-    "moduleResolution": "NodeNext",
-    "strict": true,
-    "noUncheckedIndexedAccess": true,
-    "exactOptionalPropertyTypes": true,
-    "noImplicitOverride": true,
     "noImplicitReturns": true,
-    "noFallthroughCasesInSwitch": true,
     "noPropertyAccessFromIndexSignature": true,
-    "useUnknownInCatchVariables": true,
-    "verbatimModuleSyntax": true,
-    "isolatedModules": true,
-    "forceConsistentCasingInFileNames": true,
-    "skipLibCheck": true,
-    "declaration": true,
-    "declarationMap": true,
-    "sourceMap": true,
-    "rootDir": ".",
-    "outDir": "dist"
+    "declarationMap": true
   },
   "include": ["src"]
 }

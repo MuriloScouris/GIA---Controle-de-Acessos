@@ -1,0 +1,26 @@
+:focus-visible {
+  outline: 3px solid #1a5fb4;
+  outline-offset: 2px;
+}
+
+.pular-conteudo {
+  position: absolute;
+  left: -999px;
+}
+
+.pular-conteudo:focus {
+  left: 0;
+  background: #fff;
+  padding: 0.5rem;
+}
+
+[data-disabled] {
+  opacity: 0.6;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+    animation: none !important;
+  }
+}

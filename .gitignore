@@ -4,3 +4,8 @@
 node_modules/
 bin/
 obj/
+
+.turbo/
+dist/
+coverage/
+*.tsbuildinfo
