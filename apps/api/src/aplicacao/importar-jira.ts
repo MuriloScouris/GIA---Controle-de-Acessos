@@ -47,6 +47,14 @@ function chaveLegivel(bruto: unknown): string | null {
   return typeof chave === 'string' && PADRAO_CHAVE.test(chave.trim()) ? chave.trim() : null;
 }
 
+/** Matrícula do chamado bruto, mesmo de chamado recusado pelo schema (só para mascarar). */
+function matriculaBruta(bruto: unknown): string | null {
+  if (bruto === null || typeof bruto !== 'object' || !('fields' in bruto)) return null;
+  const { fields } = bruto;
+  if (fields === null || typeof fields !== 'object' || !('matricula' in fields)) return null;
+  return typeof fields.matricula === 'string' ? fields.matricula : null;
+}
+
 /**
  * Importa os chamados de onboarding do Jira (simulado): valida cada chamado
  * no schema de contrato, normaliza, separa por vínculo e deduplica pela
@@ -69,7 +77,8 @@ export async function importarChamadosJira(
     recusados: ResultadoImportacao['recusados'];
   } = { criados: [], duplicados: [], ignorados: [], recusados: [] };
 
-  for (const bruto of await deps.fonteJira.buscarChamadosOnboarding()) {
+  const brutos = await deps.fonteJira.buscarChamadosOnboarding();
+  for (const bruto of brutos) {
     const lido = chamadoJiraSchema.safeParse(bruto);
     if (!lido.success) {
       relatorio.recusados.push({
@@ -130,8 +139,9 @@ export async function importarChamadosJira(
       });
     }
   }
-  // Chaves e tipos vêm do Jira: CPF colado neles também sai mascarado para quem não tem permissão plena.
-  return sucesso(projetarParaAtor(ctx, relatorio));
+  // Chaves e tipos vêm do Jira: CPF e matrícula colados neles (ex.: `RH-<matrícula>`)
+  // também saem mascarados para quem não tem permissão plena.
+  return sucesso(projetarParaAtor(ctx, relatorio, { matriculas: brutos.map(matriculaBruta) }));
 }
 
 async function receberUm(

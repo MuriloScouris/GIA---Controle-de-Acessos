@@ -51,7 +51,10 @@ regra de negócio; `501` ação ainda indisponível.
   (`src/aplicacao/dados-pessoais.ts`): todo CPF válido em qualquer texto vira
   `123.***.***-09`, e a matrícula da pessoa vira `***01` no campo próprio e onde
   aparecer em texto livre (motivo, nome, gestor, observação, chave da issue).
-  UUIDs não são alterados. Detalhes de erro passam pela mesma máscara.
+  Campos técnicos (IDs, instantes `...Em`, datas civis,
+  enums, códigos) e datas/instantes ISO dentro de texto livre não são
+  alterados, para a resposta seguir o contrato; a troca da matrícula é literal
+  (qualquer caractere). Detalhes de erro passam pela mesma máscara.
 - **Escrita externa desligada:** a configuração só aceita `GIA_ESCRITA_EXTERNA=false`,
   então as operações nascem em modo `simulado` (regras 8 e 9). Em modo real, o
   domínio exige a liberação por sistema (`ESCRITA_NAO_LIBERADA`).
