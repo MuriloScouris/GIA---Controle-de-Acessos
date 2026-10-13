@@ -1,10 +1,8 @@
-import { TITULO_APLICACAO } from './titulo.js';
+import { useMemo } from 'react';
+import { RouterProvider, createBrowserRouter } from 'react-router';
+import { rotas } from './rotas.js';
 
 export function App() {
-  return (
-    <main>
-      <h1>{TITULO_APLICACAO}</h1>
-      <p>Scaffold: nenhuma tela funcional ainda.</p>
-    </main>
-  );
+  const router = useMemo(() => createBrowserRouter(rotas), []);
+  return <RouterProvider router={router} />;
 }

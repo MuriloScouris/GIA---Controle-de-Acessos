@@ -1,3 +1,4 @@
+import { ErroConfiguracao } from '@gia/contratos';
 import { describe, expect, it } from 'vitest';
 import { iniciar } from './index.js';
 
@@ -6,7 +7,11 @@ describe('@gia/worker', () => {
     expect(iniciar({})).toContain('escrita externa desligada');
   });
 
-  it('ignora qualquer tentativa de ligar a escrita por ambiente', () => {
-    expect(iniciar({ GIA_AMBIENTE: 'teste', GIA_ESCRITA_EXTERNA: 'true' })).toContain('(teste');
+  it('recusa ligar a escrita externa', () => {
+    expect(() => iniciar({ GIA_ESCRITA_EXTERNA: 'true' })).toThrow(ErroConfiguracao);
+  });
+
+  it('recusa ambiente inválido', () => {
+    expect(() => iniciar({ GIA_AMBIENTE: 'x' })).toThrow(ErroConfiguracao);
   });
 });

@@ -1,6 +1,7 @@
 packages:
   - apps/*
   - packages/*
+  - tests
 
 catalog:
   '@eslint/js': ^10.0.1
@@ -14,7 +15,9 @@ catalog:
   globals: ^17.0.0
   prettier: ^3.9.10
   react: ^19.3.0
+  react-aria-components: ^1.22.1
   react-dom: ^19.3.0
+  react-router: ^8.4.0
   turbo: ^2.11.7
   typescript: ~6.0.3
   typescript-eslint: ^8.71.2

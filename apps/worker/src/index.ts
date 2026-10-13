@@ -1,12 +1,9 @@
 import { pathToFileURL } from 'node:url';
-import { configuracaoAmbienteSchema } from '@gia/contratos';
+import { carregarConfiguracaoAmbiente, type VariaveisAmbiente } from '@gia/contratos';
 
 /** Scaffold do worker: valida a configuração e encerra. Sem fila, ingestão ou conectores reais. */
-export function iniciar(env: Record<string, string | undefined> = process.env): string {
-  const config = configuracaoAmbienteSchema.parse({
-    ...(env['GIA_AMBIENTE'] ? { ambiente: env['GIA_AMBIENTE'] } : {}),
-    escritaExterna: false,
-  });
+export function iniciar(env: VariaveisAmbiente = process.env): string {
+  const config = carregarConfiguracaoAmbiente(env);
   return `worker pronto (${config.ambiente}, escrita externa desligada)`;
 }
 
