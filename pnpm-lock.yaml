@@ -365,6 +365,9 @@ importers:
 
   packages/contratos:
     dependencies:
+      '@gia/dominio':
+        specifier: workspace:*
+        version: link:../dominio
       zod:
         specifier: 'catalog:'
         version: 4.6.7
