@@ -1,7 +1,13 @@
 import { rejeitarAtorNoPayload } from '@gia/dominio';
 import { z } from 'zod';
 import { emailSchema, enumDe, textoSchema, uuidSchema, versaoSchema } from './comum.js';
-import { parametrosSistemaSchema, sistemaSchema } from './sistemas.js';
+import {
+  parametrosAdSchema,
+  parametrosDocusignSchema,
+  parametrosJiraSchema,
+  parametrosM365Schema,
+  parametrosSoftexpertSchema,
+} from './sistemas.js';
 
 const DESFECHOS = ['confirmado', 'parcial', 'falhou'] as const;
 
@@ -12,57 +18,97 @@ const identidadeSchema = z.strictObject({
   upn: emailSchema.optional(),
 });
 
-const itemPropostoSchema = z.strictObject({
-  sistema: sistemaSchema,
-  parametros: parametrosSistemaSchema,
-  origemSugestao: textoSchema(),
-});
+/**
+ * Item proposto: o discriminante `sistema` do item e o de `parametros` são o mesmo literal em
+ * cada ramo da união, então `sistema: 'ad'` com parâmetros de Jira é recusado aqui (e no tipo).
+ */
+const itemPropostoSchema = z.discriminatedUnion('sistema', [
+  z.strictObject({
+    sistema: z.literal('ad'),
+    parametros: parametrosAdSchema,
+    origemSugestao: textoSchema(),
+  }),
+  z.strictObject({
+    sistema: z.literal('m365'),
+    parametros: parametrosM365Schema,
+    origemSugestao: textoSchema(),
+  }),
+  z.strictObject({
+    sistema: z.literal('docusign'),
+    parametros: parametrosDocusignSchema,
+    origemSugestao: textoSchema(),
+  }),
+  z.strictObject({
+    sistema: z.literal('softexpert'),
+    parametros: parametrosSoftexpertSchema,
+    origemSugestao: textoSchema(),
+  }),
+  z.strictObject({
+    sistema: z.literal('jira'),
+    parametros: parametrosJiraSchema,
+    origemSugestao: textoSchema(),
+  }),
+]);
 
-const vazio = z.strictObject({});
 const itemIds = z.array(uuidSchema).min(1).optional();
 
-/**
- * Dados permitidos por ação. O ator nunca faz parte do comando: vem da sessão
- * no servidor (regra 13), e qualquer campo de autoria enviado é recusado.
- */
-const comandos = [
-  [
-    'editarProposta',
-    z.strictObject({
+/** Cabeçalho comum; o ator nunca faz parte do comando, vem da sessão (regra 13). */
+const cabecalho = { pedidoId: uuidSchema, versaoEsperada: versaoSchema };
+
+/** União discriminada por `acao`: o tipo de `dados` acompanha a ação. */
+const comandoBase = z.discriminatedUnion('acao', [
+  z.strictObject({
+    ...cabecalho,
+    acao: z.literal('editarProposta'),
+    dados: z.strictObject({
       identidade: identidadeSchema.optional(),
       itens: z.array(itemPropostoSchema).optional(),
     }),
-  ],
-  ['recalcularIdentidade', vazio],
-  ['aprovar', vazio],
-  ['rejeitar', z.strictObject({ motivo: textoSchema() })],
-  ['reabrir', z.strictObject({ motivo: textoSchema() })],
-  ['solicitarExecucao', z.strictObject({ itemIds })],
-  ['conferirExistencia', z.strictObject({ itemIds })],
-  ['registrarAcessoManual', z.strictObject({ itemId: uuidSchema, observacao: textoSchema() })],
-  ['reconciliar', z.strictObject({ itemId: uuidSchema, desfecho: enumDe(DESFECHOS) })],
-] as const;
-
-export const ACOES_COMANDO = comandos.map(([acao]) => acao);
-export type AcaoComando = (typeof comandos)[number][0];
-
-const opcoes = comandos.map(([acao, dados]) =>
-  z.strictObject({
-    pedidoId: uuidSchema,
-    versaoEsperada: versaoSchema,
-    acao: z.literal(acao),
-    dados,
   }),
-);
+  z.strictObject({
+    ...cabecalho,
+    acao: z.literal('recalcularIdentidade'),
+    dados: z.strictObject({}),
+  }),
+  z.strictObject({ ...cabecalho, acao: z.literal('aprovar'), dados: z.strictObject({}) }),
+  z.strictObject({
+    ...cabecalho,
+    acao: z.literal('rejeitar'),
+    dados: z.strictObject({ motivo: textoSchema() }),
+  }),
+  z.strictObject({
+    ...cabecalho,
+    acao: z.literal('reabrir'),
+    dados: z.strictObject({ motivo: textoSchema() }),
+  }),
+  z.strictObject({
+    ...cabecalho,
+    acao: z.literal('solicitarExecucao'),
+    dados: z.strictObject({ itemIds }),
+  }),
+  z.strictObject({
+    ...cabecalho,
+    acao: z.literal('conferirExistencia'),
+    dados: z.strictObject({ itemIds }),
+  }),
+  z.strictObject({
+    ...cabecalho,
+    acao: z.literal('registrarAcessoManual'),
+    dados: z.strictObject({ itemId: uuidSchema, observacao: textoSchema() }),
+  }),
+  z.strictObject({
+    ...cabecalho,
+    acao: z.literal('reconciliar'),
+    dados: z.strictObject({ itemId: uuidSchema, desfecho: enumDe(DESFECHOS) }),
+  }),
+]);
 
-export const comandoSchema = z
-  .discriminatedUnion(
-    'acao',
-    opcoes as unknown as [(typeof opcoes)[number], ...(typeof opcoes)[number][]],
-  )
-  .superRefine((comando, ctx) => {
-    const ator = rejeitarAtorNoPayload(comando);
-    if (!ator.ok) ctx.addIssue({ code: 'custom', message: ator.erro.mensagem });
-  });
+export const ACOES_COMANDO = comandoBase.options.map((opcao) => opcao.shape.acao.value);
+export type AcaoComando = (typeof ACOES_COMANDO)[number];
+
+export const comandoSchema = comandoBase.superRefine((comando, ctx) => {
+  const ator = rejeitarAtorNoPayload(comando);
+  if (!ator.ok) ctx.addIssue({ code: 'custom', message: ator.erro.mensagem });
+});
 
 export type Comando = z.infer<typeof comandoSchema>;
