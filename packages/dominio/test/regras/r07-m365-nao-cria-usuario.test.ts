@@ -1,6 +1,11 @@
 import { describe, expect, expectTypeOf, it } from 'vitest';
 import {
+  alterarSistemasPorVinculo,
+  aprovarPedido,
   comprovarAcessoManual,
+  configuracaoPadrao,
+  editarProposta,
+  receberChamado,
   consolidarPedido,
   registrarAcessoManual,
   registrarResultadoOperacao,
@@ -30,6 +35,12 @@ import {
   confirmarAd,
   depois,
   contexto,
+  cenarioRecebido,
+  cenarioVerificado,
+  chamado,
+  ctxAdminGia,
+  ctxRevisor,
+  itensSugeridos,
 } from '../apoio/fabricas.js';
 
 describe('Regra 7 — M365 não cria usuário', () => {
@@ -309,6 +320,131 @@ describe('Regra 7 — M365 não cria usuário', () => {
       expect(operacao.dependeDeItemId).toBe(ad.id);
       expect(execucao.itens[0]?.status).toBe('emExecucao');
       expect(reservar(operacao, AGORA, comprovado.item).status).toBe('reservada');
+    });
+  });
+
+  describe('M365 isolado, sem item AD rastreável, é recusado em todas as camadas', () => {
+    it('configuração por vínculo não aceita M365 sem AD', () => {
+      const resultado = alterarSistemasPorVinculo(
+        configuracaoPadrao(),
+        { vinculo: 'terceiro', sistemas: ['m365', 'jira'] },
+        1,
+        ctxAdminGia(),
+      );
+      expect(codigoErro(resultado)).toBe('DEPENDENCIA_DE_SISTEMA_AUSENTE');
+      expect(
+        alterarSistemasPorVinculo(
+          configuracaoPadrao(),
+          { vinculo: 'terceiro', sistemas: ['ad', 'm365'] },
+          1,
+          ctxAdminGia(),
+        ).ok,
+      ).toBe(true);
+    });
+
+    it('na ingestão, sugestão de M365 sem AD é descartada e registrada', () => {
+      const recebido = valor(
+        receberChamado(
+          {
+            chamado: chamado({ idExterno: 'RH-M365' }),
+            pedidoMesmaOrigem: null,
+            colaboradorExistente: null,
+            configuracao: configuracaoPadrao(),
+            versaoRegras: 'regras-v7',
+            itensSugeridos: itensSugeridos(['m365', 'jira']),
+          },
+          ctxRevisor(),
+        ),
+      );
+      if (recebido.tipo !== 'criado') throw new Error('esperava pedido criado');
+      expect(recebido.revisao.itens.map((item) => item.sistema)).toEqual(['jira']);
+      expect(recebido.sistemasDescartados).toEqual(['m365']);
+      expect(recebido.eventos.at(-1)?.dados).toMatchObject({ sistemasDescartados: ['m365'] });
+    });
+
+    it('a proposta não pode ficar com M365 sem AD', () => {
+      const base = cenarioRecebido({ sistemas: ['ad', 'm365'] });
+      const resultado = editarProposta(
+        {
+          pedido: base.pedido,
+          revisao: base.revisao,
+          configuracao: configuracaoPadrao(),
+          itens: base.revisao.itens.filter((item) => item.sistema === 'm365'),
+        },
+        base.pedido.versao,
+        ctxRevisor(),
+      );
+      expect(codigoErro(resultado)).toBe('DEPENDENCIA_DE_SISTEMA_AUSENTE');
+    });
+
+    it('revisão só com M365 não é aprovada, mesmo vinda de fora da validação', () => {
+      const base = cenarioVerificado({ sistemas: ['ad', 'm365'] });
+      const resultado = aprovarPedido(
+        {
+          pedido: base.pedido,
+          revisao: {
+            ...base.revisao,
+            itens: base.revisao.itens.filter((i) => i.sistema === 'm365'),
+          },
+          colaborador: base.colaborador,
+          itensAnteriores: [],
+        },
+        base.pedido.versao,
+        ctxAdminGia(),
+      );
+      expect(codigoErro(resultado)).toBe('DEPENDENCIA_DE_SISTEMA_AUSENTE');
+    });
+
+    it.each(['real', 'simulado'] as const)(
+      'execução %s de M365 sem item AD no pedido é recusada',
+      (modo) => {
+        const aprovado = cenarioAprovado({ sistemas: ['ad', 'm365'] });
+        const resultado = solicitarExecucao(
+          {
+            pedido: aprovado.pedido,
+            revisao: aprovado.revisao,
+            itens: aprovado.itens.filter((item) => item.sistema === 'm365'),
+            operacoesExistentes: [],
+            configuracao: configuracaoComEscrita(),
+            modo,
+          },
+          aprovado.pedido.versao,
+          ctxAdminGia(),
+        );
+        expect(codigoErro(resultado)).toBe('DEPENDENCIA_DE_SISTEMA_AUSENTE');
+      },
+    );
+
+    it('operação real de M365 sem dependência registrada nunca é reservada', () => {
+      const cenario = cenarioEmExecucao({ sistemas: ['ad', 'm365'] });
+      const adConfirmado = confirmarAd(cenario);
+      const semAncora = {
+        ...operacaoDo(cenario.operacoes, itemDo(cenario.itens, 'm365')),
+        dependeDeItemId: null,
+      };
+      for (const dependencia of [null, adConfirmado]) {
+        expect(
+          codigoErro(
+            reservarOperacao(semAncora, { dependencia }, POLITICA_EXECUCAO_PADRAO, ctxServico()),
+          ),
+        ).toBe('DEPENDENCIA_DE_SISTEMA_AUSENTE');
+      }
+    });
+
+    it('resultado real de M365 sem dependência registrada não é gravado', () => {
+      const cenario = cenarioEmExecucao({ sistemas: ['ad', 'm365'] });
+      const m365 = itemDo(cenario.itens, 'm365');
+      const reservada = reservar(operacaoDo(cenario.operacoes, m365), AGORA, confirmarAd(cenario));
+      const resultado = registrarResultadoOperacao(
+        {
+          operacao: { ...reservada, dependeDeItemId: null },
+          item: m365,
+          resultado: resultadoConector({ etapa: 'adicionarGrupo' }),
+        },
+        POLITICA_EXECUCAO_PADRAO,
+        ctxServico(),
+      );
+      expect(codigoErro(resultado)).toBe('DEPENDENCIA_DE_SISTEMA_AUSENTE');
     });
   });
 });
