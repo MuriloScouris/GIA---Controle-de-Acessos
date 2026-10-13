@@ -1,36 +1,50 @@
-import { renderToString } from 'react-dom/server';
-import {
-  StaticRouterProvider,
-  createMemoryRouter,
-  createStaticHandler,
-  createStaticRouter,
-  type StaticHandlerContext,
-} from 'react-router';
-import { describe, expect, it } from 'vitest';
+// @vitest-environment jsdom
+import { cleanup, render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { RouterProvider, createMemoryRouter } from 'react-router';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { rotas } from './rotas.js';
+import { PERFIS_DEMO } from './sessao/perfis.js';
+import { SessaoProvider } from './sessao/Sessao.js';
 
-async function renderizar(caminho: string): Promise<string> {
-  const handler = createStaticHandler(rotas);
-  const contexto = (await handler.query(
-    new Request(`http://teste${caminho}`),
-  )) as StaticHandlerContext;
-  const router = createStaticRouter(handler.dataRoutes, contexto);
-  return renderToString(<StaticRouterProvider router={router} context={contexto} />);
+function renderizar(caminho: string, perfilInicial = null as (typeof PERFIS_DEMO)[number] | null) {
+  const router = createMemoryRouter(rotas, { initialEntries: [caminho] });
+  render(
+    <SessaoProvider perfilInicial={perfilInicial}>
+      <RouterProvider router={router} />
+    </SessaoProvider>,
+  );
+  return router;
 }
 
+beforeEach(() => window.localStorage.clear());
+afterEach(cleanup);
+
 describe('rotas do web', () => {
-  it('renderiza a página inicial com landmark principal e link de pular conteúdo', async () => {
-    const html = await renderizar('/');
-    expect(html).toContain('<main');
-    expect(html).toContain('Pular para o conteúdo');
-    expect(html).toContain('Verificar API');
+  it('renderiza a página inicial com landmark principal e link de pular conteúdo', () => {
+    renderizar('/', PERFIS_DEMO[0]!);
+    expect(screen.getByRole('main')).toBeTruthy();
+    expect(screen.getByText('Pular para o conteúdo')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Verificar API' })).toBeTruthy();
   });
 
-  it('renderiza página não encontrada em rota desconhecida', async () => {
-    expect(await renderizar('/nao-existe')).toContain('Página não encontrada');
+  it('renderiza página não encontrada em rota desconhecida', () => {
+    renderizar('/nao-existe', PERFIS_DEMO[0]!);
+    expect(screen.getByText('Página não encontrada')).toBeTruthy();
+  });
+
+  it('sem sessão, a página inicial redireciona para /login', () => {
+    const router = renderizar('/');
+    expect(router.state.location.pathname).toBe('/login');
   });
 
   it('declara as rotas explicitamente', () => {
-    expect(createMemoryRouter(rotas).routes).toHaveLength(1);
+    expect(createMemoryRouter(rotas).routes).toHaveLength(2);
+  });
+
+  it('Sair encerra a sessão simulada e volta ao login', async () => {
+    const router = renderizar('/', PERFIS_DEMO[1]!);
+    await userEvent.click(screen.getByRole('button', { name: 'Sair' }));
+    expect(router.state.location.pathname).toBe('/login');
   });
 });

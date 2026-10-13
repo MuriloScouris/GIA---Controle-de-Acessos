@@ -1,1 +1,2 @@
-export const TITULO_APLICACAO = 'New GIA - Controle de Acessos';
+export const NOME_PRODUTO = 'Gia';
+export const TITULO_APLICACAO = 'Gia - Controle de Acessos';
