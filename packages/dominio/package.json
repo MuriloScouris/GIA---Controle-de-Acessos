@@ -2,7 +2,9 @@
   "name": "@gia/dominio",
   "version": "0.0.0",
   "private": true,
+  "description": "Domínio do Gia: entidades, estados, transições e regras de negócio puras, sem I/O.",
   "type": "module",
+  "sideEffects": false,
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -12,7 +14,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "lint": "eslint .",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p test/tsconfig.json --noEmit",
     "test": "vitest run"
   },
   "dependencies": {},
