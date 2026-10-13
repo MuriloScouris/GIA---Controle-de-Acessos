@@ -31,14 +31,23 @@ export const TRANSICOES_ITEM: TabelaTransicoes<StatusItem> = {
     'desconhecido',
     'pendente',
   ],
-  emExecucao: ['confirmado', 'parcial', 'falhou', 'desconhecido', 'aguardandoDependencia'],
+  /** `pendente` só quando a operação é cancelada antes de ser reservada (nada foi enviado). */
+  emExecucao: [
+    'confirmado',
+    'parcial',
+    'falhou',
+    'desconhecido',
+    'aguardandoDependencia',
+    'pendente',
+  ],
   parcial: ['emExecucao', 'aguardandoDependencia', 'registradoManual'],
   falhou: ['emExecucao', 'aguardandoDependencia', 'registradoManual'],
   /** Só sai daqui pela reconciliação, com conferência no destino (regra 3). */
   desconhecido: ['confirmado', 'parcial', 'falhou'],
   /** Regra 4: sucesso confirmado não se repete. */
   confirmado: [],
-  registradoManual: [],
+  /** Só por `comprovarAcessoManual`, com conferência real completa (regra 6). */
+  registradoManual: ['confirmado'],
 };
 
 export const STATUS_ITEM_CONCLUIDO: readonly StatusItem[] = ['confirmado', 'registradoManual'];

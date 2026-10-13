@@ -166,13 +166,27 @@ export function solicitarExecucao(
   for (const item of candidatos) {
     let dependeDeItemId: string | null = null;
     const sistemaDependencia = DEPENDENCIA_DE_SISTEMA[item.sistema];
+    let aguardaDependencia = false;
     if (modo === 'real' && sistemaDependencia !== undefined) {
       const dependencia = itensDaRevisao.find((outro) => outro.sistema === sistemaDependencia);
-      if (dependencia && !STATUS_ITEM_CONCLUIDO.includes(dependencia.status)) {
-        if (!idsNoLote.has(dependencia.id)) {
-          return falha('DEPENDENCIA_PENDENTE', { itemId: item.id, dependeDe: sistemaDependencia });
+      if (dependencia) {
+        // Regra 7: só AD `confirmado` pelo Gia (ou no mesmo lote) libera o M365.
+        // A operação sempre aponta para o item real, que a reserva confere de novo.
+        if (dependencia.status === 'registradoManual') {
+          return falha('DEPENDENCIA_NAO_COMPROVADA', {
+            itemId: item.id,
+            dependeDe: sistemaDependencia,
+          });
+        }
+        if (dependencia.status !== 'confirmado' && !idsNoLote.has(dependencia.id)) {
+          return falha('DEPENDENCIA_PENDENTE', {
+            itemId: item.id,
+            dependeDe: sistemaDependencia,
+            statusDependencia: dependencia.status,
+          });
         }
         dependeDeItemId = dependencia.id;
+        aguardaDependencia = dependencia.status !== 'confirmado';
       }
     }
 
@@ -221,7 +235,7 @@ export function solicitarExecucao(
     if (modo === 'real') {
       const alterado = mudarStatusItem(
         item,
-        dependeDeItemId === null ? 'emExecucao' : 'aguardandoDependencia',
+        aguardaDependencia ? 'aguardandoDependencia' : 'emExecucao',
         {
           geracao,
           ultimaOperacaoId: operacao.id,
@@ -492,6 +506,8 @@ export interface PedidoConsolidado {
  * reconciliações. Também libera itens que esperavam uma dependência que não
  * vai mais se confirmar (ex.: AD falhou, então o M365 volta a pendente e sua
  * operação é cancelada). Sucesso parcial nunca aparece como concluído.
+ * Exclusivo do serviço executor (ação `consolidarExecucao`): nenhum papel
+ * humano, nem o Administrador do Gia, altera o status por aqui.
  */
 export function consolidarPedido(
   entrada: {
@@ -501,6 +517,8 @@ export function consolidarPedido(
   },
   ctx: ContextoComando,
 ): Resultado<PedidoConsolidado> {
+  const permissao = exigirPermissao(ctx.ator, 'consolidarExecucao');
+  if (!permissao.ok) return permissao;
   const { pedido } = entrada;
   if (!STATUS_PEDIDO_EXECUTAVEL.includes(pedido.status)) {
     return sucesso({ pedido, itens: [], operacoes: [], eventos: [] });
@@ -519,8 +537,9 @@ export function consolidarPedido(
     const dependencia = itens.get(operacao.dependeDeItemId);
     const dependente = itens.get(operacao.itemId);
     if (!dependencia || !dependente) continue;
+    // Só `confirmado` libera o dependente; fora de andamento, ele não vai se confirmar.
     const dependenciaSemSaida =
-      STATUS_ITEM_COM_PROBLEMA.includes(dependencia.status) || dependencia.status === 'pendente';
+      dependencia.status !== 'confirmado' && !STATUS_ITEM_EM_ANDAMENTO.includes(dependencia.status);
     if (!dependenciaSemSaida || dependente.status !== 'aguardandoDependencia') continue;
 
     const motivo = `Dependência ${dependencia.sistema} terminou como ${dependencia.status}.`;
@@ -717,6 +736,64 @@ export function reconciliarItem(
     avaliacao,
     eventos: [evento],
   });
+}
+
+/**
+ * Comprova por conferência um acesso registrado manualmente, tornando-o
+ * `confirmado`. É o único caminho para um AD feito fora do Gia liberar o
+ * M365 (regra 7). A conferência precisa ser real e encontrar todos os
+ * acessos esperados (regra 6); só existir a conta não basta.
+ */
+export function comprovarAcessoManual(
+  entrada: {
+    readonly pedido: PedidoAdmissao;
+    readonly item: ItemAcesso;
+    readonly conferencia: ResultadoExistencia;
+  },
+  versaoEsperadaItem: number,
+  ctx: ContextoComando,
+): Resultado<{
+  readonly item: ItemAcesso;
+  readonly avaliacao: AvaliacaoExistencia;
+  readonly eventos: readonly Evento[];
+}> {
+  const permissao = exigirPermissao(ctx.ator, 'registrarManualReconciliar');
+  if (!permissao.ok) return permissao;
+  const { pedido, item, conferencia } = entrada;
+  const daRevisao = exigirItemDaRevisao(item, pedido);
+  if (!daRevisao.ok) return daRevisao;
+  const versao = exigirVersao(item, versaoEsperadaItem);
+  if (!versao.ok) return versao;
+  if (item.status !== 'registradoManual') {
+    return falha('TRANSICAO_INVALIDA', {
+      statusAtual: item.status,
+      statusPermitidos: ['registradoManual'],
+    });
+  }
+  if (conferencia.modo !== 'real') return falha('CONFERENCIA_SIMULADA');
+  const avaliacao = avaliarExistencia(conferencia, item.parametros);
+  if (avaliacao.situacao !== 'completo') {
+    return falha('EXISTENCIA_INCOMPLETA', {
+      situacaoConferida: avaliacao.situacao,
+      faltantes: avaliacao.faltantes,
+    });
+  }
+  const alterado = mudarStatusItem(item, 'confirmado', {
+    mensagem: 'Acesso manual comprovado por conferência no destino.',
+    idExterno: conferencia.referenciaExterna ?? item.idExterno,
+    confirmadoEm: ctx.agora,
+  });
+  if (!alterado.ok) return alterado;
+  const evento = eventoDoGia(ctx, {
+    tipo: 'acessoManualComprovado',
+    sistema: item.sistema,
+    pedidoId: pedido.id,
+    colaboradorId: pedido.colaboradorId,
+    antes: { statusItem: item.status },
+    depois: { statusItem: alterado.valor.status },
+    dados: { itemId: item.id, avaliacao, conferidaEm: conferencia.conferidaEm },
+  });
+  return sucesso({ item: alterado.valor, avaliacao, eventos: [evento] });
 }
 
 // ---------------------------------------------------------------------------

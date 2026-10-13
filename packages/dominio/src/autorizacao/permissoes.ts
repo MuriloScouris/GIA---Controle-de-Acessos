@@ -44,8 +44,18 @@ export type AcaoFuncional =
   | 'alterarRegras'
   | 'configurarSegredos'
   | 'liberarEscrita'
+  /**
+   * Corrigir evidência do registro de auditoria (novo evento que aponta para o
+   * original). Decisão humana: revisor e Administrador do Gia.
+   */
+  | 'corrigirEvidencia'
   /** Exclusiva do serviço executor (worker): grava o resultado devolvido pelo conector. */
-  | 'registrarResultadoOperacao';
+  | 'registrarResultadoOperacao'
+  /**
+   * Exclusiva do serviço executor: recalcula o status do pedido a partir dos
+   * itens e cancela operações cuja dependência não vai se confirmar.
+   */
+  | 'consolidarExecucao';
 
 export const ACOES_FUNCIONAIS: readonly AcaoFuncional[] = [
   'criarPedido',
@@ -63,7 +73,9 @@ export const ACOES_FUNCIONAIS: readonly AcaoFuncional[] = [
   'alterarRegras',
   'configurarSegredos',
   'liberarEscrita',
+  'corrigirEvidencia',
   'registrarResultadoOperacao',
+  'consolidarExecucao',
 ];
 
 /**
@@ -87,6 +99,7 @@ export const ACOES_FORA_DO_ADMINISTRADOR_GIA: readonly AcaoFuncional[] = [
   'configurarSegredos',
   'liberarEscrita',
   'registrarResultadoOperacao',
+  'consolidarExecucao',
 ];
 
 const TOTAL_FUNCIONAL = Object.fromEntries(
@@ -112,6 +125,7 @@ export const MATRIZ_PERMISSOES: Matriz = {
     baixarDocumento: 'restrito',
     consultarRegras: 'total',
     alterarRegras: 'total',
+    corrigirEvidencia: 'total',
   },
   executor: {
     criarPedido: 'total',
@@ -140,6 +154,7 @@ export const MATRIZ_PERMISSOES: Matriz = {
   servicoExecutor: {
     criarPedido: 'total',
     registrarResultadoOperacao: 'total',
+    consolidarExecucao: 'total',
   },
 };
 

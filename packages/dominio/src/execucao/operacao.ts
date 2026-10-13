@@ -16,7 +16,7 @@ import {
 import { proximaVersao } from '../comum/versao.js';
 import { ehOperacaoDeEscrita, type Efeito, type ModoExecucao } from '../conectores/conector.js';
 import { eventoDoGia, type Evento } from '../eventos/evento.js';
-import type { Etapa, Sistema } from '../sistemas/sistemas.js';
+import { DEPENDENCIA_DE_SISTEMA, type Etapa, type Sistema } from '../sistemas/sistemas.js';
 import type { PoliticaExecucao } from './politica.js';
 
 /** Ações que viram operação na fila (ligadas a um item). */
@@ -138,12 +138,62 @@ function atualizar(operacao: Operacao, mudancas: Partial<Operacao>, agora: Insta
 }
 
 /**
+ * Guarda de dependência (regra 7): a operação só roda se o item do qual
+ * depende — carregado do registro, não um booleano informado — é o item
+ * esperado (mesmo pedido, mesma revisão, sistema da dependência) e está
+ * `confirmado` pelo Gia. `registradoManual` não basta: não comprova que a
+ * identidade existe no AD nem que foi sincronizada para o Entra ID.
+ */
+export function exigirDependenciaConfirmada(
+  operacao: Operacao,
+  dependencia: ItemAcesso | null,
+): Resultado<true> {
+  if (operacao.dependeDeItemId === null) return sucesso(true);
+  // `!dependencia` também recusa chamadas antigas que passavam só um booleano.
+  if (!dependencia) {
+    return falha('DEPENDENCIA_PENDENTE', {
+      operacaoId: operacao.id,
+      dependeDeItemId: operacao.dependeDeItemId,
+    });
+  }
+  if (
+    dependencia.id !== operacao.dependeDeItemId ||
+    dependencia.pedidoId !== operacao.pedidoId ||
+    dependencia.revisaoId !== operacao.revisaoId ||
+    dependencia.sistema !== DEPENDENCIA_DE_SISTEMA[operacao.sistema]
+  ) {
+    return falha('DEPENDENCIA_INVALIDA', {
+      operacaoId: operacao.id,
+      dependeDeItemId: operacao.dependeDeItemId,
+      itemInformadoId: dependencia.id,
+    });
+  }
+  if (dependencia.status !== 'confirmado') {
+    return falha(
+      dependencia.status === 'registradoManual'
+        ? 'DEPENDENCIA_NAO_COMPROVADA'
+        : 'DEPENDENCIA_PENDENTE',
+      {
+        operacaoId: operacao.id,
+        dependeDeItemId: dependencia.id,
+        statusDependencia: dependencia.status,
+      },
+    );
+  }
+  return sucesso(true);
+}
+
+/**
  * Reserva com lease: dois workers nunca executam a mesma operação. Só
- * operações pendentes, já disponíveis e com dependência confirmada.
+ * operações pendentes, já disponíveis e cuja dependência (item real) está
+ * confirmada.
  */
 export function reservarOperacao(
   operacao: Operacao,
-  entrada: { readonly dependenciaConfirmada: boolean },
+  entrada: {
+    /** Item do qual a operação depende, lido do registro; `null` se não houver. */
+    readonly dependencia: ItemAcesso | null;
+  },
   politica: PoliticaExecucao,
   ctx: ContextoComando,
 ): Resultado<{ readonly operacao: Operacao; readonly eventos: readonly Evento[] }> {
@@ -158,12 +208,8 @@ export function reservarOperacao(
       disponivelEm: operacao.disponivelEm,
     });
   }
-  if (operacao.dependeDeItemId !== null && !entrada.dependenciaConfirmada) {
-    return falha('DEPENDENCIA_PENDENTE', {
-      operacaoId: operacao.id,
-      dependeDeItemId: operacao.dependeDeItemId,
-    });
-  }
+  const dependencia = exigirDependenciaConfirmada(operacao, entrada.dependencia);
+  if (!dependencia.ok) return dependencia;
   const reservada = atualizar(
     operacao,
     {
@@ -272,28 +318,55 @@ export function recuperarLeaseExpirado(
   return sucesso({ operacao: encaminhada, item: itemDesconhecido, eventos: [evento] });
 }
 
-/** Cancela uma operação que ainda não foi reservada. */
+/**
+ * Cancela uma operação que ainda não foi reservada e devolve o item a
+ * `pendente`. Exige a ação `executarOperacoes` (executor ou Administrador do Gia).
+ */
 export function cancelarOperacao(
-  operacao: Operacao,
-  motivo: string,
+  entrada: { readonly operacao: Operacao; readonly item: ItemAcesso; readonly motivo: string },
   ctx: ContextoComando,
-): Resultado<{ readonly operacao: Operacao; readonly eventos: readonly Evento[] }> {
+): Resultado<{
+  readonly operacao: Operacao;
+  readonly item: ItemAcesso;
+  readonly eventos: readonly Evento[];
+}> {
+  const permissao = exigirPermissao(ctx.ator, 'executarOperacoes');
+  if (!permissao.ok) return permissao;
+  const { operacao, item, motivo } = entrada;
+  if (item.id !== operacao.itemId) return falha('ITEM_FORA_DO_PEDIDO', { itemId: item.id });
   const transicao = exigirTransicao(TRANSICOES_OPERACAO, operacao.status, 'cancelada');
   if (!transicao.ok) return transicao;
   if (!textoPreenchido(motivo)) return falha('MOTIVO_OBRIGATORIO');
+
   const cancelada = atualizar(
     operacao,
     { status: 'cancelada', mensagem: motivo.trim() },
     ctx.agora,
   );
+  // Operação simulada nunca alterou o item; a real o deixou em andamento.
+  let itemLiberado = item;
+  if (
+    operacao.modo === 'real' &&
+    item.ultimaOperacaoId === operacao.id &&
+    item.status !== 'pendente'
+  ) {
+    const transicaoItem = exigirTransicao(TRANSICOES_ITEM, item.status, 'pendente');
+    if (!transicaoItem.ok) return transicaoItem;
+    itemLiberado = {
+      ...item,
+      status: 'pendente',
+      mensagem: motivo.trim(),
+      versao: proximaVersao(item),
+    };
+  }
   const evento = eventoDoGia(ctx, {
     tipo: 'operacaoResultadoRegistrado',
     sistema: operacao.sistema,
     pedidoId: operacao.pedidoId,
     operacaoId: operacao.id,
-    antes: { status: operacao.status },
-    depois: { status: cancelada.status },
+    antes: { statusOperacao: operacao.status, statusItem: item.status },
+    depois: { statusOperacao: cancelada.status, statusItem: itemLiberado.status },
     dados: { motivo: motivo.trim() },
   });
-  return sucesso({ operacao: cancelada, eventos: [evento] });
+  return sucesso({ operacao: cancelada, item: itemLiberado, eventos: [evento] });
 }

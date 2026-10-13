@@ -83,7 +83,7 @@ Cada máquina de estados é uma tabela `TRANSICOES_*` exportada e testada.
 | 13  | Ator vem da sessão                     | `test/regras/r13-ator-vem-da-sessao.test.ts`               |
 
 Testes unitários complementares em `test/unidade/` (permissões e Administrador
-do Gia, identidade, pedido, operação/lease, execução, colaborador, pureza).
+do Gia, guardas de autorização, identidade, pedido, operação/lease, execução, colaborador, pureza).
 
 ## Decisões registradas
 
@@ -99,6 +99,19 @@ do Gia, identidade, pedido, operação/lease, execução, colaborador, pureza).
   funcionais; não configura segredos, não libera escrita e não registra
   resultado de worker. Continua sujeito ao gate de escrita e todos os eventos
   levam o ator com seus papéis (filtrável na auditoria).
+- **Guardas de autorização em comandos mutadores:** `cancelarOperacao` exige
+  `executarOperacoes` (executor, Administrador do Gia) e devolve o item a
+  `pendente`; `consolidarPedido` exige `consolidarExecucao`, exclusiva do
+  serviço executor (nenhum papel humano, nem o Administrador do Gia);
+  `registrarCorrecao` exige `corrigirEvidencia` (revisor, Administrador do Gia).
+- **Dependência M365 → AD (regra 7):** a operação do M365 sempre aponta para o
+  item do AD da revisão, e `reservarOperacao` recebe esse **item real**
+  (`{ dependencia }`), não um booleano. A guarda (`exigirDependenciaConfirmada`)
+  exige mesmo pedido, mesma revisão, sistema `ad` e status `confirmado`.
+  AD `registradoManual` não libera o M365 (`DEPENDENCIA_NAO_COMPROVADA`) até ser
+  comprovado por `comprovarAcessoManual`, com conferência real e completa. A
+  sincronização AD → Entra é verificada pela primeira etapa do conector M365
+  (`IDENTIDADE_NAO_SINCRONIZADA` → aguarda sem consumir tentativa).
 - **Terceiros:** por padrão nenhum sistema gera item para `terceiro`.
 - **Documento:** só itens `confirmado` de pedido `concluido`; registro manual e
   simulação não entram.

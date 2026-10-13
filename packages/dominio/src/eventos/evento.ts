@@ -1,4 +1,9 @@
-import { registrarAtor, type AtorRegistrado, type ContextoComando } from '../autorizacao/ator.js';
+import {
+  exigirPermissao,
+  registrarAtor,
+  type AtorRegistrado,
+  type ContextoComando,
+} from '../autorizacao/ator.js';
 import { congelarProfundo } from '../comum/imutavel.js';
 import { falha, sucesso, type Resultado } from '../comum/resultado.js';
 import { mascararCpfs, sanitizar } from '../comum/sanitizacao.js';
@@ -30,6 +35,7 @@ export type TipoEvento =
   | 'operacaoReagendada'
   | 'operacaoEncaminhadaParaReconciliacao'
   | 'acessoManualRegistrado'
+  | 'acessoManualComprovado'
   | 'itemReconciliado'
   | 'configuracaoAlterada'
   | 'liberacaoEscritaAlterada'
@@ -151,13 +157,16 @@ export function anexarEventos(
 
 /**
  * Correção de um evento: grava um novo evento `correcaoRegistrada` que
- * aponta para o original. O original permanece intacto.
+ * aponta para o original. O original permanece intacto. Exige a ação
+ * `corrigirEvidencia` (revisor ou Administrador do Gia).
  */
 export function registrarCorrecao(
   registro: RegistroEventos,
   entrada: { readonly eventoOriginalId: Uuid; readonly motivo: string; readonly correcao: unknown },
   ctx: ContextoComando,
 ): Resultado<{ readonly registro: RegistroEventos; readonly evento: Evento }> {
+  const permissao = exigirPermissao(ctx.ator, 'corrigirEvidencia');
+  if (!permissao.ok) return permissao;
   const original = registro.find((evento) => evento.id === entrada.eventoOriginalId);
   if (!original) return falha('EVENTO_INEXISTENTE', { eventoId: entrada.eventoOriginalId });
   if (!textoPreenchido(entrada.motivo)) return falha('MOTIVO_OBRIGATORIO');

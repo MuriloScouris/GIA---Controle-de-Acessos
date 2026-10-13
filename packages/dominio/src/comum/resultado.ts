@@ -35,10 +35,13 @@ export type CodigoErro =
   | 'LEASE_INDISPONIVEL'
   | 'LEASE_INVALIDO'
   | 'DEPENDENCIA_PENDENTE'
+  | 'DEPENDENCIA_INVALIDA'
+  | 'DEPENDENCIA_NAO_COMPROVADA'
   | 'ETAPA_DESCONHECIDA'
   | 'M365_NAO_CRIA_USUARIO'
   | 'CONFERENCIA_SIMULADA'
   | 'DESFECHO_DIVERGE_DA_CONFERENCIA'
+  | 'EXISTENCIA_INCOMPLETA'
   | 'DOCUMENTO_INDISPONIVEL'
   | 'EVENTO_DUPLICADO'
   | 'EVENTO_INEXISTENTE'
@@ -82,12 +85,18 @@ export const MENSAGENS_ERRO: Readonly<Record<CodigoErro, string>> = {
   LEASE_INDISPONIVEL: 'A operação não está disponível para reserva.',
   LEASE_INVALIDO: 'A reserva desta operação pertence a outro executor ou expirou.',
   DEPENDENCIA_PENDENTE: 'A operação aguarda a conclusão de uma dependência.',
+  DEPENDENCIA_INVALIDA:
+    'O item informado como dependência não é o item do qual a operação depende.',
+  DEPENDENCIA_NAO_COMPROVADA:
+    'O AD precisa estar confirmado pelo Gia antes do M365. Acesso registrado manualmente não comprova a identidade; comprove-o por conferência.',
   ETAPA_DESCONHECIDA: 'Etapa não reconhecida para o sistema.',
   M365_NAO_CRIA_USUARIO:
     'O Microsoft 365 não cria usuários; ele licencia a identidade sincronizada pelo AD.',
   CONFERENCIA_SIMULADA: 'Conferência simulada não serve de prova para reconciliação.',
   DESFECHO_DIVERGE_DA_CONFERENCIA:
     'O desfecho informado não corresponde ao que foi conferido no sistema.',
+  EXISTENCIA_INCOMPLETA:
+    'A conta existe, mas nem todos os acessos esperados foram encontrados no destino.',
   DOCUMENTO_INDISPONIVEL: 'O documento de acessos só é emitido para pedidos concluídos.',
   EVENTO_DUPLICADO: 'Evento já registrado; eventos não são regravados.',
   EVENTO_INEXISTENTE: 'Evento não encontrado.',
