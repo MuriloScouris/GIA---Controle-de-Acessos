@@ -133,11 +133,14 @@ export function mascararDadosPessoais<T>(
     matriculas.reduce(
       // Callback: o texto de troca é inserido literalmente, sem padrões `$`.
       (acc, [padrao, troca]) => acc.replace(padrao, () => troca),
-      mascararCpfEmTexto(s),
+      s,
     );
 
-  const texto = (s: string): string => {
-    if (UUID.test(s)) return s;
+  const texto = (original: string): string => {
+    if (UUID.test(original)) return original;
+    // CPF primeiro, no texto inteiro: a preservação de datas não pode cortar
+    // os onze dígitos (`<cpf>-01-01` casaria `8909-01-01` como data).
+    const s = mascararCpfEmTexto(original);
     let resultado = '';
     let inicio = 0;
     for (const data of s.matchAll(DATA_ISO)) {
