@@ -31,6 +31,12 @@ export function useCarregar<T>(
   const [contador, setContador] = useState(0);
   const carregarRef = useRef(carregar);
   const ultimoRef = useRef<T | null>(null);
+  // Ordem das consultas: só vale a resposta mais nova já recebida; respostas antigas, que chegam
+  // fora de ordem, são descartadas e nunca restauram dados nem escondem um erro mais recente.
+  const iniciadasRef = useRef(0);
+  const aplicadaRef = useRef(0);
+  // Após 401/403 nada em voo pode reabrir a tela; só uma recarga explícita desbloqueia.
+  const bloqueadoRef = useRef(false);
   const atualizar = opcoes.atualizarEnquanto;
   const atualizarRef = useRef(atualizar);
 
@@ -46,16 +52,24 @@ export function useCarregar<T>(
 
   useEffect(() => {
     let ativo = true;
+    bloqueadoRef.current = false;
+    const ordem = ++iniciadasRef.current;
+    aplicadaRef.current = ordem; // a recarga invalida tudo o que já estava em voo
+    const vale = () => {
+      if (!ativo || ordem < aplicadaRef.current) return false;
+      aplicadaRef.current = ordem;
+      return true;
+    };
     carregarRef
       .current()
       .then((dados) => {
-        if (!ativo) return;
+        if (!vale()) return;
         ultimoRef.current = dados;
         setAtualizacaoFalhou(false);
         setEstado({ situacao: 'ok', dados });
       })
       .catch((erro: unknown) => {
-        if (!ativo) return;
+        if (!vale()) return;
         ultimoRef.current = null;
         setEstado({
           situacao: 'erro',
@@ -75,17 +89,24 @@ export function useCarregar<T>(
       const ultimo = ultimoRef.current;
       const quando = atualizarRef.current?.quando;
       if (ultimo === null || quando === undefined || !quando(ultimo)) return;
+      const ordem = ++iniciadasRef.current;
+      const vale = () => {
+        if (!ativo || bloqueadoRef.current || ordem < aplicadaRef.current) return false;
+        aplicadaRef.current = ordem;
+        return true;
+      };
       carregarRef
         .current()
         .then((dados) => {
-          if (!ativo) return;
+          if (!vale()) return;
           ultimoRef.current = dados;
           setAtualizacaoFalhou(false);
           setEstado({ situacao: 'ok', dados });
         })
         .catch((erro: unknown) => {
-          if (!ativo) return;
+          if (!vale()) return;
           if (erro instanceof ErroApi && (erro.status === 401 || erro.status === 403)) {
+            bloqueadoRef.current = true;
             // Sessão expirada ou acesso retirado: para de consultar e troca a tela pelo erro,
             // sem manter na tela dados que a pessoa já não pode ver.
             ultimoRef.current = null;

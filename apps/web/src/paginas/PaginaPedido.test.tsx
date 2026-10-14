@@ -238,9 +238,40 @@ describe('detalhe do pedido', () => {
       await confirmarNoDialogo('Solicitar execução');
       expect(api.executarComando).toHaveBeenCalledWith(ID_PEDIDO, 3, {
         acao: 'solicitarExecucao',
-        dados: {},
+        dados: { itemIds: [ID_ITEM_AD, ID_ITEM_JIRA] },
       });
       expect(await screen.findByText(/Execução aceita: 2 operação\(ões\) na fila/)).toBeTruthy();
+    });
+
+    it('lote misto: item ocupado fica de fora e só os livres seguem em itemIds', async () => {
+      const api = criarApiFalsa({
+        detalharPedido: async () =>
+          detalhe({
+            status: 'aprovado',
+            itens: [
+              itemResultado({ operacoes: [operacaoSimulada('pendente')] }),
+              itemResultado({ id: ID_ITEM_JIRA, sistema: 'jira' }),
+            ],
+          }),
+        executarComando: async () => ({
+          ok: true,
+          status: 'aprovado',
+          versao: 4,
+          operacaoId: '77777777-7777-4777-8777-777777777777',
+          operacaoIds: ['77777777-7777-4777-8777-777777777777'],
+        }),
+      });
+      renderizarApp(CAMINHO, api);
+      await userEvent.click(
+        await screen.findByRole('button', { name: 'Provisionar todos os itens' }),
+      );
+      await confirmarNoDialogo('Solicitar execução');
+      expect(api.executarComando).toHaveBeenCalledTimes(1);
+      expect(api.executarComando).toHaveBeenCalledWith(ID_PEDIDO, 3, {
+        acao: 'solicitarExecucao',
+        dados: { itemIds: [ID_ITEM_JIRA] },
+      });
+      expect(await screen.findByText(/Execução aceita: 1 operação\(ões\) na fila/)).toBeTruthy();
     });
 
     it('provisiona um item só, enviando o ID do item', async () => {

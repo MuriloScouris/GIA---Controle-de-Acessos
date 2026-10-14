@@ -46,7 +46,7 @@ type Dialogo =
   | { readonly tipo: 'reabrir' }
   | { readonly tipo: 'recalcular' }
   | { readonly tipo: 'editarIdentidade' }
-  | { readonly tipo: 'executarTodos' }
+  | { readonly tipo: 'executarTodos'; readonly itemIds: readonly string[] }
   | { readonly tipo: 'executarItem'; readonly itemId: string; readonly sistema: Sistema }
   | { readonly tipo: 'acessoManual' };
 
@@ -386,7 +386,12 @@ function TelaPedido({ pedidoId }: { pedidoId: string }) {
             </>
           )}
           {executavel && permitido('executarOperacoes') && itensElegiveis.length > 0 && (
-            <Button className="botao-primario" onPress={() => abrir({ tipo: 'executarTodos' })}>
+            <Button
+              className="botao-primario"
+              onPress={() =>
+                abrir({ tipo: 'executarTodos', itemIds: itensElegiveis.map((item) => item.id) })
+              }
+            >
               {detalhe.status === 'aprovado'
                 ? 'Provisionar todos os itens'
                 : 'Reprocessar pendentes e com erro'}
@@ -508,7 +513,11 @@ function TelaPedido({ pedidoId }: { pedidoId: string }) {
         titulo={detalhe.status === 'aprovado' ? 'Provisionar todos os itens?' : 'Reprocessar?'}
         descricao="Será gravada a intenção de execução na fila; um worker a executa depois. Itens já confirmados não são executados de novo. Resultado simulado nunca vira confirmação."
         confirmarRotulo="Solicitar execução"
-        onConfirmar={() => enviar({ acao: 'solicitarExecucao', dados: {} })}
+        onConfirmar={() =>
+          dialogoAtivo?.tipo === 'executarTodos'
+            ? enviar({ acao: 'solicitarExecucao', dados: { itemIds: [...dialogoAtivo.itemIds] } })
+            : Promise.resolve()
+        }
         onFechar={() => setDialogo(null)}
       />
       <DialogoConfirmacao
