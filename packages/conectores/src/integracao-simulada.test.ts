@@ -44,7 +44,10 @@ function novoCatalogo(): CatalogoSimulado {
       grupos: CADASTROS.softexpert.grupos,
     },
     jira: CADASTROS.jira,
-    chamadosJira: [{ key: 'RH-1', fields: {} }],
+    chamadosJira: [
+      { key: 'RH-1', fields: { tipoSolicitacao: 'Admissão - Celetista' } },
+      { key: 'RH-2', fields: { tipoSolicitacao: 'Desligamento' } },
+    ],
   });
 }
 
@@ -111,7 +114,9 @@ describe('integração simulada: onboarding ponta a ponta nos cinco sistemas', (
 
   it('o Jira de origem simulado serve a porta de chamados da API', async () => {
     const { jiraOrigem } = novoCatalogo();
-    expect(await jiraOrigem.buscarChamadosOnboarding()).toEqual([{ key: 'RH-1', fields: {} }]);
+    expect(await jiraOrigem.buscarChamadosOnboarding()).toEqual([
+      { key: 'RH-1', fields: { tipoSolicitacao: 'Admissão - Celetista' } },
+    ]);
   });
 });
 

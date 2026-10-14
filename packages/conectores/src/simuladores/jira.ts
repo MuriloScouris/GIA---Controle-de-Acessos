@@ -110,11 +110,28 @@ export class JiraOrigemSimulado implements ClienteJiraOrigem {
     readonly inicio: number;
     readonly tamanho: number;
   }): Promise<PaginaChamados> {
-    return this.roteiro.passar('buscarPagina', () => ({
-      chamados: structuredClone(
-        this.chamados.slice(consulta.inicio, consulta.inicio + consulta.tamanho),
-      ),
-      total: this.chamados.length,
-    }));
+    return this.roteiro.passar('buscarPagina', () => {
+      // Como o JQL do Jira real: o filtro por request type vem antes da paginação e do total.
+      // Lista vazia não casa com nada (um `IN ()` não seleciona chamado algum).
+      const tipos = new Set(consulta.tiposSolicitacao);
+      const filtrados = this.chamados.filter((chamado) => {
+        const tipo = tipoDe(chamado);
+        return tipo !== null && tipos.has(tipo);
+      });
+      return {
+        chamados: structuredClone(
+          filtrados.slice(consulta.inicio, consulta.inicio + consulta.tamanho),
+        ),
+        total: filtrados.length,
+      };
+    });
   }
+}
+
+function tipoDe(chamado: unknown): string | null {
+  if (typeof chamado !== 'object' || chamado === null) return null;
+  const { fields } = chamado as { fields?: unknown };
+  if (typeof fields !== 'object' || fields === null) return null;
+  const { tipoSolicitacao } = fields as { tipoSolicitacao?: unknown };
+  return typeof tipoSolicitacao === 'string' ? tipoSolicitacao : null;
 }

@@ -34,7 +34,7 @@ describe('Jira (origem)', () => {
   });
 
   it('deduplica pela chave da issue e mantém o que não tem chave para a API recusar', async () => {
-    const semChave = { fields: {} };
+    const semChave = { fields: { tipoSolicitacao: 'Admissão - Terceiro' } };
     const { origem } = montar([
       chamado('RH-1'),
       chamado('RH-2'),
@@ -45,6 +45,40 @@ describe('Jira (origem)', () => {
     const lidos = await origem.buscarChamadosOnboarding();
     expect(lidos).toHaveLength(4);
     expect(lidos.filter((c) => (c as { key?: string }).key === 'RH-1')).toHaveLength(1);
+  });
+
+  it('só devolve os request types de onboarding, filtrando antes da paginação e do total', async () => {
+    const tipado = (key: string, tipoSolicitacao: string): unknown => ({
+      key,
+      fields: { tipoSolicitacao },
+    });
+    const { simulador, origem } = montar(
+      [
+        tipado('RH-1', 'Desligamento'),
+        tipado('RH-2', 'Admissão - Celetista'),
+        tipado('RH-3', 'Acesso avulso'),
+        tipado('RH-4', 'Admissão - Terceiro'),
+        tipado('RH-5', 'Desligamento'),
+        tipado('RH-6', 'Admissão - Celetista'),
+        { key: 'RH-7' },
+        'lixo',
+      ],
+      2,
+    );
+    const lidos = await origem.buscarChamadosOnboarding();
+    expect(lidos.map((c) => (c as { key: string }).key)).toEqual(['RH-2', 'RH-4', 'RH-6']);
+    // 3 chamados de onboarding em páginas de 2: duas páginas, não quatro.
+    expect(simulador.roteiro.chamadas('buscarPagina')).toBe(2);
+    expect(
+      await simulador.buscarPagina({ tiposSolicitacao: TIPOS, inicio: 0, tamanho: 2 }),
+    ).toMatchObject({ total: 3 });
+    expect(
+      await simulador.buscarPagina({ tiposSolicitacao: ['Desligamento'], inicio: 0, tamanho: 10 }),
+    ).toMatchObject({ total: 2 });
+    expect(await simulador.buscarPagina({ tiposSolicitacao: [], inicio: 0, tamanho: 10 })).toEqual({
+      chamados: [],
+      total: 0,
+    });
   });
 
   it('busca vazia devolve lista vazia com uma única chamada', async () => {
