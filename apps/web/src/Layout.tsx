@@ -59,9 +59,11 @@ export function Layout() {
                 <span className="operador-rotulo">Perfil</span>
                 <span className="operador-nome">{perfil.nome}</span>
               </div>
-              <Button className="operador-sair" onPress={sair}>
+              <Button className="operador-sair" onPress={sair} aria-label="Sair">
                 <IconeSair />
-                Sair
+                <span className="operador-sair-texto" aria-hidden="true">
+                  Sair
+                </span>
               </Button>
             </div>
           </div>

@@ -60,7 +60,7 @@
   --tab-azul: #7dd3fc;
   --tab-azul-ink: #075985;
   --tab-laranja: #fdba74;
-  --tab-laranja-ink: #9a3412;
+  --tab-laranja-ink: #7c2d12; /* #9a3412 do desenho dá 4,33:1; AA exige 4,5:1 */
   --tab-verde: #86efac;
   --tab-verde-ink: #166534;
   --tab-amarelo: #fde047;
@@ -68,7 +68,7 @@
   --tab-ciano: #67e8f9;
   --tab-ciano-ink: #155e75;
   --tab-vermelho: #fca5a5;
-  --tab-vermelho-ink: #991b1b;
+  --tab-vermelho-ink: #7f1d1d; /* #991b1b do desenho dá 4,38:1 */
   --tab-cinza: #e2ddf0;
   --tab-cinza-ink: #4c4568;
 
@@ -81,6 +81,8 @@
     0 7px 0 -3px #f8f4fd, 0 8px 0 -3px rgba(46, 16, 101, 0.08);
   --foco-anel: 0 0 0 0.2rem rgba(124, 58, 237, 0.22);
   --cor-foco: #5b21b6;
+  /* Mesma família roxa, clara o bastante para a sidebar escura (8,1:1 sobre #2b2144) */
+  --cor-foco-escuro: #c4b5fd;
 }
 
 /* Classes de cor das abas: só definem as variáveis */
@@ -351,7 +353,7 @@ code {
   background: var(--primary);
   color: #fff;
   font-size: 1.125rem;
-  font-weight: 800;
+  font-weight: 750;
 }
 
 .marca-titulo {
@@ -402,7 +404,7 @@ nav {
 }
 
 .lateral :focus-visible {
-  outline-color: #fff;
+  outline-color: var(--cor-foco-escuro);
 }
 
 .icone {
@@ -436,6 +438,7 @@ nav {
 
 .operador-info {
   display: flex;
+  flex: 1 1 auto;
   flex-direction: column;
   min-width: 0;
   line-height: 1.3;
@@ -460,6 +463,7 @@ nav {
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
+  flex: 0 0 auto;
   margin-left: auto;
   padding: 0.4rem 0.6rem;
   border: 0;
@@ -473,6 +477,17 @@ nav {
   transition:
     background-color 0.15s ease,
     color 0.15s ease;
+}
+
+/* No desktop o espaço é do nome; o botão fica só com o ícone (nome acessível: "Sair") */
+.operador-sair-texto {
+  display: none;
+}
+
+@media (max-width: 640.98px) {
+  .operador-sair-texto {
+    display: inline;
+  }
 }
 
 .operador-sair[data-hovered] {
@@ -671,20 +686,16 @@ nav {
   cursor: pointer;
   position: relative;
   z-index: 0;
-  opacity: 0.58;
+  /* Cor e texto sempre opacos (contraste AA): o estado inativo é só a posição afundada */
   transform: translateY(6px);
-  transition:
-    opacity 0.15s ease,
-    transform 0.15s ease;
+  transition: transform 0.15s ease;
 }
 
 .config-tab[data-hovered] {
-  opacity: 0.85;
   transform: translateY(3px);
 }
 
 .config-tab[data-selected] {
-  opacity: 1;
   transform: none;
   z-index: 2;
   box-shadow: 0 -3px 8px -4px rgba(46, 16, 101, 0.2);
@@ -1133,7 +1144,7 @@ textarea:focus {
 .login-titulo-marca {
   margin: 0 0 1.25rem;
   font-size: clamp(2rem, 3.4vw, 2.9rem);
-  font-weight: 800;
+  font-weight: 750;
   line-height: 1.1;
   letter-spacing: -0.035em;
 }
@@ -1185,7 +1196,6 @@ textarea:focus {
 .login-rodape-marca {
   margin: 0;
   color: #a78bfa;
-  opacity: 0.7;
   font-size: 0.8rem;
   font-weight: 500;
 }
@@ -1247,7 +1257,7 @@ textarea:focus {
 .login-cartao h1 {
   margin: 0 0 0.75rem;
   font-size: 1.875rem;
-  font-weight: 800;
+  font-weight: 750;
   letter-spacing: -0.025em;
 }
 
