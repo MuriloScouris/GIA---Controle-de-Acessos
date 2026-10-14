@@ -65,6 +65,16 @@ export async function criarBancoDeTeste({ migrar = true } = {}): Promise<BancoDe
     async descartar() {
       await Promise.all(conexoes.map((conexao) => conexao.destroy()));
       await comAdmin(async (admin) => {
+        // O pool pode ainda estar fechando conexões; derrubá-las no meio (`force`)
+        // vira erro não tratado no cliente. Espera saírem e só então apaga.
+        for (let tentativa = 0; tentativa < 50; tentativa += 1) {
+          const ativas = await admin.query<{ n: string }>(
+            'select count(*) as n from pg_stat_activity where datname = $1',
+            [nome],
+          );
+          if (Number(ativas.rows[0]?.n ?? 0) === 0) break;
+          await new Promise((r) => setTimeout(r, 100));
+        }
         await admin.query(`drop database if exists ${nome} with (force)`);
       });
     },

@@ -45,5 +45,6 @@ describe('GET /pedidos/:pedidoId/documento', () => {
     expect(api.persistencia.espiar.eventos().filter((e) => e.tipo === 'documentoEmitido')).toEqual(
       [],
     );
-  });
+    // Fluxo inteiro (importar, aprovar, quatro sessões) num só teste.
+  }, 15_000);
 });
