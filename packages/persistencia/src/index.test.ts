@@ -1,7 +1,8 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { PACOTE, criarUnidadeDeTrabalhoEmMemoria } from './index.js';
+import { PACOTE, criarUnidadeDeTrabalhoEmMemoria, urlDoBanco } from './index.js';
+import { NO_CI, TEM_BANCO } from './teste/banco-de-teste.js';
 
 describe('@gia/persistencia', () => {
   it('expõe o identificador do pacote', () => {
@@ -27,10 +28,21 @@ describe('@gia/persistencia', () => {
     expect(confirmados()).toEqual([]);
   });
 
-  it('não depende de driver de banco nem de rede', () => {
+  it('acessa o banco só por PostgreSQL + Kysely (ADR-0003)', () => {
     const pkg = JSON.parse(
       readFileSync(join(import.meta.dirname, '..', 'package.json'), 'utf8'),
     ) as { dependencies: Record<string, string> };
-    expect(Object.keys(pkg.dependencies)).toEqual(['@gia/contratos']);
+    expect(Object.keys(pkg.dependencies).sort()).toEqual(['@gia/dominio', 'kysely', 'pg']);
+  });
+
+  it('URL do banco ausente: o erro cita só o nome da variável', () => {
+    expect(() => urlDoBanco({})).toThrow('Configuração inválida: GIA_DATABASE_URL');
+    expect(urlDoBanco({ GIA_DATABASE_URL: 'postgres://localhost/gia' })).toBe(
+      'postgres://localhost/gia',
+    );
+  });
+
+  it('no CI os testes de banco rodam de verdade (GIA_DATABASE_URL_TESTE definida)', () => {
+    if (NO_CI) expect(TEM_BANCO).toBe(true);
   });
 });
