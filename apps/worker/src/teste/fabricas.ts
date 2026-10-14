@@ -272,8 +272,9 @@ export function resultado(
   sistema: Sistema,
   efeito: Efeito,
   mudancas: Partial<ResultadoOperacao> & { readonly etapa?: Etapa | null } = {},
+  acao: 'provisionar' | 'revogar' = 'provisionar',
 ): ResultadoOperacao {
-  const ultima = etapasDe(sistema, 'provisionar').at(-1) ?? null;
+  const ultima = etapasDe(sistema, acao).at(-1) ?? null;
   return {
     efeito,
     modo: 'real',
@@ -302,7 +303,7 @@ export function conectoresProgramados(modo: ModoExecucao = 'real'): ConectoresPr
       const chamada = { sistema, acao, ctx };
       chamadas.push(chamada);
       const proxima = filas.get(sistema)?.shift();
-      return proxima ? proxima(chamada) : resultado(sistema, 'confirmado', { modo });
+      return proxima ? proxima(chamada) : resultado(sistema, 'confirmado', { modo }, acao);
     };
     const naoUsado = (): never => {
       throw new Error('o worker não deveria chamar esta operação');
@@ -326,6 +327,30 @@ export function conectoresProgramados(modo: ModoExecucao = 'real'): ConectoresPr
     chamadas,
     programar(sistema, ...respostas) {
       filas.set(sistema, [...(filas.get(sistema) ?? []), ...respostas]);
+    },
+  };
+}
+
+/** Resposta que só sai quando o teste mandar; avisa quando o conector foi chamado. */
+export function respostaSegura() {
+  let liberar!: () => void;
+  const liberada = new Promise<void>((r) => {
+    liberar = r;
+  });
+  let avisar!: () => void;
+  const chamada = new Promise<void>((r) => {
+    avisar = r;
+  });
+  return {
+    /** Promessa resolvida quando o conector recebe a chamada. */
+    chamada,
+    liberar,
+    responder(r: ResultadoOperacao): () => Promise<ResultadoOperacao> {
+      return async () => {
+        avisar();
+        await liberada;
+        return r;
+      };
     },
   };
 }

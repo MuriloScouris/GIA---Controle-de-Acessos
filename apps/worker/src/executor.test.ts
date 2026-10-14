@@ -36,6 +36,7 @@ import {
   gravar,
   INICIO,
   operacao,
+  respostaSegura,
   resultado,
   type ConectoresProgramados,
 } from './teste/fabricas.js';
@@ -501,3 +502,240 @@ describe.skipIf(!TEM_BANCO)('worker: lease e retomada', { timeout: TEMPO_BANCO_M
     );
   });
 });
+
+/** Cinco operações reais independentes (um cenário por operação). */
+async function loteReal(quantidade: number, sistema: 'jira' | 'ad' = 'jira'): Promise<Operacao[]> {
+  const ops: Operacao[] = [];
+  for (let i = 0; i < quantidade; i += 1) {
+    const c = cenario([sistema]);
+    const op = operacao(c, sistema, { disponivelEm: depois(-1000 * (quantidade - i)) });
+    await gravar(persistencia, c, [op]);
+    ops.push(op);
+  }
+  return ops;
+}
+
+describe.skipIf(!TEM_BANCO)(
+  'worker: lease no lote sequencial (revisão PR #9)',
+  { timeout: TEMPO_BANCO_MS },
+  () => {
+    it('lote lento sem renovação: depois de perder o lease, as operações restantes não chamam o conector', async () => {
+      const programados = conectoresProgramados();
+      const ops = await loteReal(5);
+      const lenta = respostaSegura();
+      programados.programar('jira', lenta.responder(resultado('jira', 'confirmado')));
+      const politica: PoliticaExecucao = { ...POLITICA_EXECUCAO_PADRAO, lotePorWorker: 5 };
+
+      // Worker 1 reserva as 5 e trava na primeira; a renovação dele não roda (ex.: banco instável).
+      const w1 = executor(programados.conectores, { politica }).processarLote();
+      await lenta.chamada;
+      agora = depois(LEASE + 1_000);
+      const w2 = await executor(programados.conectores, {
+        politica,
+        workerId: 'worker-2',
+        persistencia: criarPersistenciaPostgres(banco.outraConexao()),
+      }).processarLote();
+      expect(w2.recuperadas.paraReconciliacao).toBe(5);
+
+      lenta.liberar();
+      const relatorio = await w1;
+      expect(relatorio.desfechos.map((d) => d.tipo)).toEqual([
+        'descartada',
+        'naoExecutada',
+        'naoExecutada',
+        'naoExecutada',
+        'naoExecutada',
+      ]);
+      // Só a primeira (já em andamento quando o lease venceu) chegou ao destino.
+      expect(programados.chamadas.map((ch) => ch.ctx.operacaoId)).toEqual([ops[0]!.id]);
+      for (const op of ops) expect((await ler(op.id)).status).toBe('aguardandoReconciliacao');
+    });
+
+    it('lease vencido sem ninguém ter recuperado: o gate recusa e o conector não é chamado', async () => {
+      const programados = conectoresProgramados();
+      const ops = await loteReal(2);
+      const lenta = respostaSegura();
+      programados.programar('jira', lenta.responder(resultado('jira', 'confirmado')));
+      const w1 = executor(programados.conectores).processarLote();
+      await lenta.chamada;
+      agora = depois(LEASE + 1);
+      lenta.liberar();
+      const relatorio = await w1;
+      expect(relatorio.desfechos).toMatchObject([
+        { tipo: 'descartada', operacaoId: ops[0]!.id, erro: { codigo: 'LEASE_INVALIDO' } },
+        { tipo: 'naoExecutada', operacaoId: ops[1]!.id, erro: { codigo: 'LEASE_INVALIDO' } },
+      ]);
+      expect(programados.chamadas).toHaveLength(1);
+    });
+
+    it('com a renovação do lote, outro worker não toma nenhuma operação e todas rodam uma vez', async () => {
+      const programados = conectoresProgramados();
+      const ops = await loteReal(5);
+      const lenta = respostaSegura();
+      programados.programar('jira', lenta.responder(resultado('jira', 'confirmado')));
+      const politica: PoliticaExecucao = { ...POLITICA_EXECUCAO_PADRAO, lotePorWorker: 5 };
+      const relogio = agendadorManual();
+
+      const w1 = executor(programados.conectores, {
+        politica,
+        agendar: relogio.agendar,
+      }).processarLote();
+      await lenta.chamada;
+      agora = depois(LEASE - 10_000);
+      relogio.disparar();
+      for (const op of ops) {
+        await vi.waitFor(async () =>
+          expect((await ler(op.id)).lease?.expiraEm).toBe(depois(2 * LEASE - 10_000)),
+        );
+      }
+      agora = depois(LEASE + 1_000);
+      const w2 = await executor(programados.conectores, {
+        politica,
+        workerId: 'worker-2',
+        persistencia: criarPersistenciaPostgres(banco.outraConexao()),
+      }).processarLote();
+      expect(w2).toMatchObject({
+        reservadas: 0,
+        recuperadas: { reagendadas: 0, paraReconciliacao: 0 },
+      });
+
+      lenta.liberar();
+      expect((await w1).desfechos.map((d) => d.tipo)).toEqual(Array(5).fill('registrada'));
+      expect(programados.chamadas.map((ch) => ch.ctx.operacaoId)).toEqual(ops.map((op) => op.id));
+    });
+  },
+);
+
+describe.skipIf(!TEM_BANCO)('worker: concorrência por destino', { timeout: TEMPO_BANCO_MS }, () => {
+  it('vários workers nunca passam do limite de chamadas simultâneas ao mesmo destino', async () => {
+    const ops = await loteReal(6, 'ad');
+    let emAndamento = 0;
+    let maximo = 0;
+    const chamadas: string[] = [];
+    const lento = conectoresProgramados();
+    const conectores = {
+      ...lento.conectores,
+      ad: {
+        ...lento.conectores.ad,
+        provisionar: async (ctx: Parameters<typeof lento.conectores.ad.provisionar>[0]) => {
+          emAndamento += 1;
+          maximo = Math.max(maximo, emAndamento);
+          chamadas.push(ctx.operacaoId);
+          await new Promise((r) => setTimeout(r, 30));
+          emAndamento -= 1;
+          return resultado('ad', 'confirmado');
+        },
+      },
+    };
+    const outra = criarPersistenciaPostgres(banco.outraConexao());
+    const workers = ['a', 'b', 'c'].map((id, i) =>
+      executor(conectores, {
+        workerId: `worker-${id}`,
+        // Lote pequeno: os três workers dividem a fila e chamam o AD ao mesmo tempo.
+        politica: { ...POLITICA_EXECUCAO_PADRAO, lotePorWorker: 2 },
+        limitePorSistema: { ad: 2 },
+        persistencia: i % 2 === 0 ? persistencia : outra,
+      }),
+    );
+    for (let rodada = 0; rodada < 6 && chamadas.length < ops.length; rodada += 1) {
+      await Promise.all(workers.map((w) => w.processarLote()));
+    }
+    expect(chamadas.sort()).toEqual(ops.map((op) => op.id).sort());
+    expect(maximo).toBeLessThanOrEqual(2);
+  });
+});
+
+describe.skipIf(!TEM_BANCO)(
+  'worker: revogação e sincronização do M365',
+  { timeout: TEMPO_BANCO_MS },
+  () => {
+    it('revogação real chama `revogar` com o motivo e conclui na última etapa de revogação', async () => {
+      const programados = conectoresProgramados();
+      const c = cenario(['jira']);
+      const op = operacao(c, 'jira', { acao: 'revogar', mensagem: 'Desligamento em 2026-11-30.' });
+      await gravar(persistencia, c, [op]);
+
+      await executor(programados.conectores).processarLote();
+      expect(programados.chamadas).toMatchObject([
+        { sistema: 'jira', acao: 'revogar', ctx: { operacaoId: op.id, etapaInicial: null } },
+      ]);
+      expect((programados.chamadas[0]!.ctx as { motivo?: string }).motivo).toBe(
+        'Desligamento em 2026-11-30.',
+      );
+      expect(await ler(op.id)).toMatchObject({
+        status: 'concluida',
+        efeito: 'confirmado',
+        etapaAlcancada: 'removerGrupos',
+      });
+      expect((await item(c.itens.jira!.id)).status).toBe('confirmado');
+    });
+
+    it('revogação do AD interrompida retoma da etapa seguinte; JA_REVOGADO conclui', async () => {
+      const programados = conectoresProgramados();
+      programados.programar(
+        'ad',
+        () =>
+          resultado(
+            'ad',
+            'semEfeito',
+            { etapa: 'desabilitarConta', codigo: 'LIMITE', transitorio: true },
+            'revogar',
+          ),
+        () => resultado('ad', 'confirmado', { etapa: null, codigo: 'JA_REVOGADO' }, 'revogar'),
+      );
+      const c = cenario(['ad']);
+      const op = operacao(c, 'ad', { acao: 'revogar' });
+      await gravar(persistencia, c, [op]);
+      const w = executor(programados.conectores);
+
+      await w.processarLote();
+      agora = depois(POLITICA_EXECUCAO_PADRAO.backoffMs[0]!);
+      await w.processarLote();
+      expect(programados.chamadas.map((ch) => [ch.acao, ch.ctx.etapaInicial])).toEqual([
+        ['revogar', null],
+        ['revogar', 'moverParaOuInativos'],
+      ]);
+      expect(await ler(op.id)).toMatchObject({ status: 'concluida', codigo: 'JA_REVOGADO' });
+    });
+
+    it('M365 sem identidade sincronizada espera o intervalo configurado, sem gastar tentativa', async () => {
+      const programados = conectoresProgramados();
+      programados.programar('m365', () =>
+        resultado('m365', 'semEfeito', {
+          etapa: null,
+          codigo: 'IDENTIDADE_NAO_SINCRONIZADA',
+          transitorio: true,
+        }),
+      );
+      const politica: PoliticaExecucao = {
+        ...POLITICA_EXECUCAO_PADRAO,
+        esperaSincronizacaoM365Ms: 600_000,
+      };
+      const c = cenario(['ad', 'm365']);
+      const ad = operacao(c, 'ad');
+      const m365 = operacao(c, 'm365');
+      await gravar(persistencia, c, [ad, m365]);
+      const w = executor(programados.conectores, { politica });
+
+      await w.processarLote(); // AD confirmado
+      await w.processarLote(); // M365: identidade ainda não chegou ao Entra ID
+      expect(await ler(m365.id)).toMatchObject({
+        status: 'pendente',
+        tentativas: 0,
+        disponivelEm: depois(600_000),
+        codigo: 'IDENTIDADE_NAO_SINCRONIZADA',
+      });
+      expect((await item(c.itens.m365!.id)).status).toBe('aguardandoDependencia');
+      expect((await pedido(c.pedido.id))?.status).toBe('emExecucao');
+
+      agora = depois(599_000);
+      expect((await w.processarLote()).reservadas).toBe(0);
+      agora = depois(600_000);
+      await w.processarLote();
+      expect(await ler(m365.id)).toMatchObject({ status: 'concluida', tentativas: 1 });
+      expect((await item(c.itens.m365!.id)).status).toBe('confirmado');
+      expect((await pedido(c.pedido.id))?.status).toBe('concluido');
+      expect(programados.chamadas.map((ch) => ch.sistema)).toEqual(['ad', 'm365', 'm365']);
+    });
+  },
+);
