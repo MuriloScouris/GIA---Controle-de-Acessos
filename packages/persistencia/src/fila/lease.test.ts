@@ -1,4 +1,5 @@
 import { POLITICA_EXECUCAO_PADRAO, type Operacao, type PoliticaExecucao } from '@gia/dominio';
+import { sql } from 'kysely';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { ErroDeConcorrencia } from '../erros.js';
 import type { RepositoriosComFila } from '../portas.js';
@@ -24,9 +25,18 @@ afterAll(async () => {
   await banco?.descartar();
 }, TEMPO_BANCO_MS);
 
-/** Cada teste usa um banco limpo de operações: a fila é global. */
+/**
+ * A fila é global: cada teste começa sem nada reservável ou com lease. Não dá
+ * para apagar operações (eventos de auditoria as referenciam); as que
+ * sobraram de testes anteriores são canceladas.
+ */
 async function filaLimpa(): Promise<void> {
-  await banco.db.deleteFrom('operacoes').execute();
+  await sql`
+    update operacoes
+    set status = 'cancelada', lease_worker_id = null, lease_expira_em = null,
+        dados = dados || '{"status": "cancelada", "lease": null}'::jsonb
+    where status in ('pendente', 'reservada')
+  `.execute(banco.db);
   persistencia = criarPersistenciaPostgres(banco.db);
 }
 
@@ -94,9 +104,10 @@ describe.skipIf(!TEM_BANCO)('lease: reserva', { timeout: TEMPO_BANCO_MS }, () =>
     await gravar(c, [m365]);
     expect((await reservarLote(persistencia, politica(10), ctxServico())).reservadas).toEqual([]);
 
-    await persistencia.executar((tx) =>
-      tx.itens.salvar([{ ...c.itens.ad, status: 'confirmado', versao: 2 }]),
-    );
+    await persistencia.executar(async (tx) => {
+      const ad = await tx.fila.itemPorId(c.itens.ad.id);
+      await tx.itens.salvar([{ ...ad!, status: 'confirmado', versao: 2 }]);
+    });
     const { reservadas } = await reservarLote(persistencia, politica(10), ctxServico());
     expect(reservadas.map((o) => o.id)).toEqual([m365.id]);
   });

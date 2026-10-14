@@ -1,3 +1,4 @@
+import { eventoDoGia } from '@gia/dominio';
 import { sql } from 'kysely';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { ErroDeConcorrencia, ErroDeIntegridade } from '../erros.js';
@@ -107,7 +108,8 @@ describe.skipIf(!TEM_BANCO)(
     it('confirma estado, eventos e operações juntos', async () => {
       const c = await gravarCenario();
       await persistencia.executar(async (tx) => {
-        await tx.pedidos.salvar({ ...c.pedido, status: 'emExecucao', versao: 2 });
+        const pedido = await tx.pedidos.porId(c.pedido.id);
+        await tx.pedidos.salvar({ ...pedido!, status: 'emExecucao', versao: 2 });
         await tx.operacoes.salvar([operacao(c.itens.ad), operacao(c.itens.jira)]);
         await tx.eventos.anexar([evento(ctxServico(), c.pedido.id)]);
       });
@@ -207,6 +209,56 @@ describe.skipIf(!TEM_BANCO)(
       expect(await contar('eventos', c.pedido.id)).toBe(1);
     });
 
+    it('evento só referencia pedido, operação e colaborador existentes (conferido no commit)', async () => {
+      const c = await gravarCenario();
+      const ctx = ctxServico();
+      const inexistente = '00000000-0000-4000-8000-0000000000ff';
+      const orfaos = [
+        ['eventos_pedido_fk', eventoDoGia(ctx, { tipo: 'pedidoAprovado', pedidoId: inexistente })],
+        [
+          'eventos_operacao_fk',
+          eventoDoGia(ctx, {
+            tipo: 'operacaoReservada',
+            pedidoId: c.pedido.id,
+            operacaoId: inexistente,
+          }),
+        ],
+        [
+          'eventos_colaborador_fk',
+          eventoDoGia(ctx, { tipo: 'colaboradorCriado', colaboradorId: inexistente }),
+        ],
+      ] as const;
+      for (const [restricao, orfao] of orfaos) {
+        await expect(persistencia.executar((tx) => tx.eventos.anexar([orfao]))).rejects.toEqual(
+          new ErroDeIntegridade(`referência inexistente (${restricao})`),
+        );
+      }
+      const gravados = await sql<{ n: string }>`
+        select count(*) as n from eventos where id in (${sql.join(orfaos.map(([, e]) => e.id))})
+      `.execute(banco.db);
+      expect(Number(gravados.rows[0]?.n)).toBe(0);
+
+      // Evento anexado antes da entidade, na mesma transação: vale o estado no commit.
+      const novo = cenario();
+      const op = operacao(novo.itens.ad);
+      await persistencia.executar(async (tx) => {
+        await tx.eventos.anexar([
+          eventoDoGia(ctx, {
+            tipo: 'operacaoReservada',
+            pedidoId: novo.pedido.id,
+            operacaoId: op.id,
+            colaboradorId: novo.colaborador.id,
+          }),
+        ]);
+        await tx.colaboradores.salvar(novo.colaborador);
+        await tx.pedidos.salvar(novo.pedido);
+        await tx.revisoes.salvar(novo.revisao);
+        await tx.itens.salvar([novo.itens.ad]);
+        await tx.operacoes.salvar([op]);
+      });
+      expect(await contar('eventos', novo.pedido.id)).toBe(1);
+    });
+
     it('revisão aprovada é imutável; rascunho pode mudar', async () => {
       const c = await gravarCenario();
       const aprovada = {
@@ -260,32 +312,86 @@ describe.skipIf(!TEM_BANCO)(
         segundaLeu();
         await tx.pedidos.salvar({ ...pedido!, status: 'rejeitado', versao: 2 });
       });
+      // Captura já: a recusa pode chegar antes do `expect`.
+      const recusaDaSegunda = segunda.catch((erro: unknown) => erro);
       await leu;
       expect(versaoLida).toEqual([1]);
       liberarPrimeira();
       await primeira;
-      await expect(segunda).rejects.toEqual(new ErroDeConcorrencia('pedidos', c.pedido.id));
+      expect(await recusaDaSegunda).toEqual(new ErroDeConcorrencia('pedidos', c.pedido.id));
       const final = await persistencia.executar((tx) => tx.pedidos.porId(c.pedido.id));
       expect(final).toMatchObject({ status: 'emExecucao', versao: 2 });
     });
 
-    it('gravação baseada em versão antiga é recusada; regravar sem mudança é aceito', async () => {
+    it('cópia que não foi lida na transação nunca sobrescreve, nem saltando versão', async () => {
       const c = await gravarCenario();
-      await persistencia.executar((tx) =>
-        tx.pedidos.salvar({ ...c.pedido, status: 'emExecucao', versao: 2 }),
-      );
-      await expect(
-        persistencia.executar((tx) =>
-          tx.pedidos.salvar({ ...c.pedido, status: 'rejeitado', versao: 2 }),
-        ),
-      ).rejects.toBeInstanceOf(ErroDeConcorrencia);
-      await expect(
-        persistencia.executar((tx) => tx.pedidos.salvar({ ...c.pedido, versao: 1 })),
-      ).rejects.toBeInstanceOf(ErroDeConcorrencia);
-      // Mesma versão e mesmo conteúdo: no-op aceito (casos de uso regravam o agregado inteiro).
-      await persistencia.executar((tx) =>
-        tx.pedidos.salvar({ ...c.pedido, status: 'emExecucao', versao: 2 }),
-      );
+      await persistencia.executar(async (tx) => {
+        const pedido = await tx.pedidos.porId(c.pedido.id);
+        await tx.pedidos.salvar({ ...pedido!, status: 'emExecucao', versao: 2 });
+      });
+      // Banco em v2; a cópia obsoleta é da v1 (lida em outra transação, já encerrada).
+      for (const obsoleta of [
+        { ...c.pedido, status: 'rejeitado' as const, versao: 2 },
+        { ...c.pedido, status: 'rejeitado' as const, versao: 3 },
+        { ...c.pedido, status: 'rejeitado' as const, versao: 99 },
+        { ...c.pedido, versao: 1 },
+      ]) {
+        await expect(
+          persistencia.executar((tx) => tx.pedidos.salvar(obsoleta)),
+          `versão ${obsoleta.versao}`,
+        ).rejects.toEqual(new ErroDeConcorrencia('pedidos', c.pedido.id));
+      }
+      // Ler e regravar sem mudança é aceito (casos de uso regravam o agregado inteiro).
+      await persistencia.executar(async (tx) => {
+        const pedido = await tx.pedidos.porId(c.pedido.id);
+        await tx.pedidos.salvar(pedido!);
+      });
+      const final = await persistencia.executar((tx) => tx.pedidos.porId(c.pedido.id));
+      expect(final).toMatchObject({ status: 'emExecucao', versao: 2 });
+    });
+
+    it('salto de versão concorrente: quem leu v1 não grava v3 sobre a v2 de outra transação', async () => {
+      const c = await gravarCenario();
+      const outra = criarPersistenciaPostgres(banco.outraConexao());
+      let liberar!: () => void;
+      const segura = new Promise<void>((r) => {
+        liberar = r;
+      });
+      let leu!: () => void;
+      const lida = new Promise<void>((r) => {
+        leu = r;
+      });
+      // A primeira lê v1 e, antes de gravar, espera a outra confirmar a v2.
+      const primeira = persistencia.executar(async (tx) => {
+        const pedido = await tx.pedidos.porId(c.pedido.id);
+        leu();
+        await segura;
+        // Domínio avançou duas versões (ex.: editar + revalidar identidade).
+        await tx.pedidos.salvar({ ...pedido!, status: 'pendenteAprovacao', versao: 3 });
+      });
+      const recusaDaPrimeira = primeira.catch((erro: unknown) => erro);
+      await lida;
+      await outra.executar(async (tx) => {
+        const pedido = await tx.pedidos.porId(c.pedido.id);
+        await tx.pedidos.salvar({ ...pedido!, status: 'rejeitado', versao: 2 });
+      });
+      liberar();
+      expect(await recusaDaPrimeira).toEqual(new ErroDeConcorrencia('pedidos', c.pedido.id));
+      const final = await persistencia.executar((tx) => tx.pedidos.porId(c.pedido.id));
+      expect(final).toMatchObject({ status: 'rejeitado', versao: 2 });
+    });
+
+    it('o mesmo registro novo inserido por duas transações: só uma cria', async () => {
+      const c = await gravarCenario();
+      const outra = criarPersistenciaPostgres(banco.outraConexao());
+      const op = operacao(c.itens.jira);
+      const resultados = await Promise.allSettled([
+        persistencia.executar((tx) => tx.operacoes.salvar([op])),
+        outra.executar((tx) => tx.operacoes.salvar([{ ...op, mensagem: 'outra' }])),
+      ]);
+      expect(resultados.map((r) => r.status).sort()).toEqual(['fulfilled', 'rejected']);
+      const recusa = resultados.find((r) => r.status === 'rejected');
+      expect(recusa?.status === 'rejected' && recusa.reason).toBeInstanceOf(ErroDeConcorrencia);
     });
 
     it('o domínio pode avançar várias versões na transação: vale a versão lida', async () => {
@@ -329,6 +435,7 @@ describe.skipIf(!TEM_BANCO)(
     it('a mesma transação pode gravar o registro mais de uma vez', async () => {
       const c = await gravarCenario();
       await persistencia.executar(async (tx) => {
+        await tx.itens.doPedido(c.pedido.id);
         await tx.itens.salvar([{ ...c.itens.ad, status: 'emExecucao', versao: 2 }]);
         await tx.itens.salvar([
           { ...c.itens.ad, status: 'emExecucao', mensagem: 'ajuste', versao: 2 },

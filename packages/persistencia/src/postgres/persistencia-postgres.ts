@@ -105,16 +105,13 @@ async function lerUmVersionado<T extends { readonly id: string; readonly versao:
 }
 
 /**
- * Grava com controle otimista. O registro guardado precisa estar na versão
- * que esta transação viu (leu ou gravou); o domínio pode avançar a versão
- * mais de uma vez antes de gravar. Sem leitura na transação, só aceita
- * versão maior que a guardada, ou conteúdo idêntico (regravar sem mudança).
- * Qualquer outro caso significa que outra transação mudou o registro:
- * `ErroDeConcorrencia`, e a transação inteira é desfeita.
- *
- * Para registro lido, conteúdo idêntico não basta: duas transações que
- * aplicam a mesma mudança à mesma versão produzem o mesmo resultado, e só a
- * primeira pode gravar.
+ * Grava com controle otimista. Registro novo é inserido (`ON CONFLICT DO
+ * NOTHING`); registro existente só é atualizado se esta transação o leu (ou
+ * gravou) e ele ainda está nessa versão. O domínio pode avançar a versão mais
+ * de uma vez antes de gravar; o que vale é a versão lida. Qualquer outro caso
+ * (outra transação mudou o registro, ou a gravação parte de uma cópia que não
+ * foi lida nesta transação) é `ErroDeConcorrencia`, e a transação inteira é
+ * desfeita.
  */
 async function gravarVersionado(
   tx: Tx,
@@ -126,37 +123,30 @@ async function gravarVersionado(
   const chave = `${tabela}:${entidade.id}`;
   const dados = jsonb(entidade);
   const valores = Object.entries({ ...colunas, versao: entidade.versao });
-  const atribuicoes = sql.join([
-    ...valores.map(([coluna, valor]) => sql`${sql.ref(coluna)} = ${valor}`),
-    sql`dados = ${dados}`,
-  ]);
   const vista = vistas.get(chave);
-  const versaoEsperada =
+  const gravado =
     vista === undefined
-      ? sql`(versao < ${entidade.versao} or (versao = ${entidade.versao} and dados = ${dados}))`
-      : sql`versao = ${vista}`;
-  const atualizado = await executarSql(
-    sql`
-      update ${sql.table(tabela)} set ${atribuicoes}
-      where id = ${entidade.id} and ${versaoEsperada}
-    `,
-    tx,
-  );
-  if ((atualizado.numAffectedRows ?? 0n) === 0n) {
-    const existente = await executarSql(
-      sql`select 1 from ${sql.table(tabela)} where id = ${entidade.id}`,
-      tx,
-    );
-    if (existente.rows.length > 0) throw new ErroDeConcorrencia(tabela, entidade.id);
-    await executarSql(
-      sql`
-        insert into ${sql.table(tabela)}
-          (${sql.join([sql.ref('id'), ...valores.map(([coluna]) => sql.ref(coluna)), sql.ref('dados')])})
-        values (${sql.join([entidade.id, ...valores.map(([, valor]) => valor), dados])})
-      `,
-      tx,
-    );
-  }
+      ? await executarSql(
+          sql`
+            insert into ${sql.table(tabela)}
+              (${sql.join([sql.ref('id'), ...valores.map(([coluna]) => sql.ref(coluna)), sql.ref('dados')])})
+            values (${sql.join([entidade.id, ...valores.map(([, valor]) => valor), dados])})
+            on conflict (id) do nothing
+          `,
+          tx,
+        )
+      : await executarSql(
+          sql`
+            update ${sql.table(tabela)}
+            set ${sql.join([
+              ...valores.map(([coluna, valor]) => sql`${sql.ref(coluna)} = ${valor}`),
+              sql`dados = ${dados}`,
+            ])}
+            where id = ${entidade.id} and versao = ${vista}
+          `,
+          tx,
+        );
+  if ((gravado.numAffectedRows ?? 0n) === 0n) throw new ErroDeConcorrencia(tabela, entidade.id);
   vistas.set(chave, entidade.versao);
 }
 

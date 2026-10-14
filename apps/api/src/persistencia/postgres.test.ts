@@ -156,6 +156,48 @@ describe.skipIf(!TEM_BANCO)('API sobre PostgreSQL', { timeout: TEMPO_BANCO_MS },
     expect(aprovacoes.filter((e) => e.pedidoId === pedidoId)).toHaveLength(1);
   });
 
+  it('duas edições simultâneas (cada uma avança duas versões): uma grava, a outra recebe 409', async () => {
+    const primeira = apiNoBanco();
+    const segunda = apiNoBanco();
+    const revisorA = await primeira.entrar('revisor');
+    const revisorB = await segunda.entrar('revisor');
+    const relatorio = await importar(primeira, revisorA);
+    // RH-1003 continua pendente nos testes anteriores (identidade em uso).
+    const pedidoId = [...relatorio.criados, ...relatorio.duplicados].find(
+      (p) => p.chave === 'RH-1003',
+    )!.pedidoId;
+    const res = await primeira.get(revisorA, `/pedidos/${pedidoId}`);
+    const lido = pedidoDetalheSchema.parse(res.json());
+    const edicao = (login: string) => ({
+      pedidoId,
+      versaoEsperada: lido.versao,
+      acao: 'editarProposta',
+      dados: {
+        identidade: { login, email: `${login}@exemplo.com.br`, nomeExibicao: 'João P.' },
+        itens: lido.revisao.itens,
+      },
+    });
+
+    const respostas = await Promise.all([
+      primeira.comando(revisorA, pedidoId, edicao('joao.paralelo.a')),
+      segunda.comando(revisorB, pedidoId, edicao('joao.paralelo.b')),
+    ]);
+    expect(respostas.map((r) => r.statusCode).sort()).toEqual([200, 409]);
+    const vencedora = respostaSucessoSchema.parse(
+      respostas.find((r) => r.statusCode === 200)!.json(),
+    );
+    // Editar (v+1) e revalidar a identidade (v+2) na mesma transação.
+    expect(vencedora.versao).toBe(lido.versao + 2);
+    const final = pedidoDetalheSchema.parse(
+      (await segunda.get(revisorB, `/pedidos/${pedidoId}`)).json(),
+    );
+    expect(final.versao).toBe(vencedora.versao);
+    const loginVencedor = respostas[0]!.statusCode === 200 ? 'joao.paralelo.a' : 'joao.paralelo.b';
+    expect(final.revisao.identidade?.login).toBe(loginVencedor);
+    const edicoes = await persistencia.executar((tx) => tx.eventos.porTipo('propostaEditada'));
+    expect(edicoes.filter((e) => e.pedidoId === pedidoId)).toHaveLength(1);
+  });
+
   it('outra instância da API enxerga o que foi gravado (API sem estado em memória)', async () => {
     const api = apiNoBanco();
     const revisor = await api.entrar('revisor');
