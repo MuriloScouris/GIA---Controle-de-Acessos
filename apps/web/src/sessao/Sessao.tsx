@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react';
+import { useApi } from '../api/ApiProvider.js';
 import { encontrarPerfil, type PerfilDemo } from './perfis.js';
 
 /**
@@ -43,6 +44,7 @@ export function SessaoProvider({
   /** Perfil de partida (testes); ausente = lê do localStorage. */
   perfilInicial?: PerfilDemo | null;
 }) {
+  const api = useApi();
   const [perfil, setPerfil] = useState<PerfilDemo | null>(() =>
     perfilInicial !== undefined ? perfilInicial : lerPerfilArmazenado(),
   );
@@ -55,7 +57,9 @@ export function SessaoProvider({
   const sair = useCallback(() => {
     gravarPerfil(null);
     setPerfil(null);
-  }, []);
+    // O logout local vale mesmo se o servidor não responder; o cookie expira por conta própria.
+    api.encerrarSessao().catch(() => undefined);
+  }, [api]);
 
   const valor = useMemo(() => ({ perfil, entrar, sair }), [perfil, entrar, sair]);
   return <SessaoContext.Provider value={valor}>{children}</SessaoContext.Provider>;

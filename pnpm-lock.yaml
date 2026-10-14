@@ -305,6 +305,9 @@ importers:
       '@gia/contratos':
         specifier: workspace:*
         version: link:../../packages/contratos
+      '@gia/dominio':
+        specifier: workspace:*
+        version: link:../../packages/dominio
       react:
         specifier: 'catalog:'
         version: 19.3.0
