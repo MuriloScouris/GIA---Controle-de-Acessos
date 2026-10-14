@@ -379,6 +379,9 @@ importers:
       '@gia/contratos':
         specifier: workspace:*
         version: link:../contratos
+      '@gia/dominio':
+        specifier: workspace:*
+        version: link:../dominio
     devDependencies:
       '@types/node':
         specifier: 'catalog:'
