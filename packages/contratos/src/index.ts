@@ -14,3 +14,4 @@ export * from './sistemas.js';
 export * from './comando.js';
 export * from './resposta.js';
 export * from './conector.js';
+export * from './onboarding.js';

@@ -47,7 +47,13 @@ export type CodigoErro =
   | 'DOCUMENTO_INDISPONIVEL'
   | 'EVENTO_DUPLICADO'
   | 'EVENTO_INEXISTENTE'
-  | 'EVENTO_SEM_ATOR';
+  | 'EVENTO_SEM_ATOR'
+  // Fronteira HTTP: sessão, CSRF, recurso, ação ainda não disponível e falha inesperada.
+  | 'NAO_AUTENTICADO'
+  | 'CSRF_INVALIDO'
+  | 'NAO_ENCONTRADO'
+  | 'ACAO_INDISPONIVEL'
+  | 'ERRO_INTERNO';
 
 export const MENSAGENS_ERRO: Readonly<Record<CodigoErro, string>> = {
   DADO_INVALIDO: 'Dados inválidos.',
@@ -107,6 +113,11 @@ export const MENSAGENS_ERRO: Readonly<Record<CodigoErro, string>> = {
   EVENTO_DUPLICADO: 'Evento já registrado; eventos não são regravados.',
   EVENTO_INEXISTENTE: 'Evento não encontrado.',
   EVENTO_SEM_ATOR: 'Eventos originados no Gia precisam de ator.',
+  NAO_AUTENTICADO: 'Sessão ausente ou expirada. Entre novamente.',
+  CSRF_INVALIDO: 'Requisição de escrita sem a proteção contra falsificação (CSRF).',
+  NAO_ENCONTRADO: 'Registro não encontrado.',
+  ACAO_INDISPONIVEL: 'Esta ação ainda não está disponível nesta versão do Gia.',
+  ERRO_INTERNO: 'Não foi possível concluir a ação. Recarregue e confira antes de tentar de novo.',
 };
 
 export interface ErroDominio {
