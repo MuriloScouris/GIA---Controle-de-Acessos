@@ -16,4 +16,10 @@ export {
 export { criarPersistenciaPostgres } from './postgres/persistencia-postgres.js';
 export type { OpcoesPersistenciaPostgres } from './postgres/persistencia-postgres.js';
 export { recuperarLeasesExpirados, renovarLeaseDaOperacao, reservarLote } from './fila/lease.js';
-export type { Recusa, ResultadoRecuperacao, ResultadoReserva } from './fila/lease.js';
+export type {
+  LimitePorSistema,
+  OpcoesReserva,
+  Recusa,
+  ResultadoRecuperacao,
+  ResultadoReserva,
+} from './fila/lease.js';

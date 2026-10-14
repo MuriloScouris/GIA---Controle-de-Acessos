@@ -31,8 +31,11 @@ As regras são do domínio (`reservarOperacao`, `renovarLease`,
 `recuperarLeaseExpirado`); `src/fila/lease.ts` só lê travando, aplica e grava
 operação, item e eventos na mesma transação:
 
-- `reservarLote(persistencia, politica, ctx)`: até `lotePorWorker` operações
-  pendentes, disponíveis e com dependência confirmada;
+- `reservarLote(persistencia, politica, ctx, { limitePorSistema })`: até
+  `lotePorWorker` operações pendentes, disponíveis e com dependência
+  confirmada; com limite, cada sistema só recebe as vagas livres (trava
+  consultiva por sistema; conta as reservadas com lease válido de todos os
+  workers);
 - `renovarLeaseDaOperacao(...)`: só o dono, antes de vencer;
 - `recuperarLeasesExpirados(...)`: leitura/simulação volta à fila; escrita real
   vai para reconciliação e o item fica `desconhecido`.
