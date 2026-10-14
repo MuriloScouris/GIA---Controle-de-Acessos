@@ -24,6 +24,7 @@ import {
   recuperarLeasesExpirados,
   renovarLeaseDaOperacao,
   reservarLote,
+  type LimitePorSistema,
   type RepositoriosComFila,
   type UnidadeDeTrabalho,
 } from '@gia/persistencia';
@@ -35,8 +36,13 @@ import {
  * orquestração.
  *
  * Garantias:
- * - **Lease:** só executa o que reservou; renova o lease enquanto o conector
- *   trabalha; se perdeu o lease, o resultado é descartado (o domínio recusa).
+ * - **Lease:** só executa o que reservou. Os leases do lote são renovados
+ *   enquanto esperam a vez e durante a chamada; imediatamente antes de cada
+ *   chamada o lease é revalidado e renovado (gate): sem lease válido, o
+ *   conector não é chamado. Se o lease se perder durante a chamada, o
+ *   resultado é descartado (o domínio recusa).
+ * - **Concorrência por destino:** a reserva respeita `limitePorSistema`,
+ *   somando todos os workers (trava no banco).
  * - **Retomada:** cada ciclo começa recuperando leases vencidos (worker que
  *   caiu): leitura/simulação volta à fila; escrita real vai para
  *   reconciliação, nunca é reenviada às cegas. Uma nova tentativa começa na
@@ -56,6 +62,8 @@ export interface DependenciasExecutor {
   readonly novoId: () => Uuid;
   /** Sorteio em [0, 1) para o jitter do backoff; o domínio não sorteia. */
   readonly sortearJitter?: () => number;
+  /** Máximo de operações reservadas ao mesmo tempo por destino, somando os workers. */
+  readonly limitePorSistema?: LimitePorSistema;
   /** Agenda `tarefa` a cada `ms`; devolve o cancelamento. Padrão: `setInterval`. */
   readonly agendar?: (tarefa: () => void, ms: number) => () => void;
 }
@@ -65,7 +73,14 @@ export type DesfechoOperacao =
   /** O lease venceu ou mudou de dono durante a chamada: o resultado não foi gravado. */
   | { readonly tipo: 'descartada'; readonly operacaoId: Uuid; readonly erro: ErroDominio }
   /** A gravação falhou (ex.: banco indisponível); o lease vence e a retomada trata. */
-  | { readonly tipo: 'naoGravada'; readonly operacaoId: Uuid; readonly causa: string };
+  | { readonly tipo: 'naoGravada'; readonly operacaoId: Uuid; readonly causa: string }
+  /** Na vez dela o lease já não era válido: o conector não foi chamado. */
+  | {
+      readonly tipo: 'naoExecutada';
+      readonly operacaoId: Uuid;
+      readonly erro: ErroDominio;
+      readonly causa?: string;
+    };
 
 export interface RelatorioLote {
   readonly recuperadas: { readonly reagendadas: number; readonly paraReconciliacao: number };
@@ -196,33 +211,35 @@ export function criarExecutor(deps: DependenciasExecutor): Executor {
     }
   }
 
-  /** Renova o lease enquanto `trabalho` roda. */
-  async function comLeaseRenovado<T>(
-    operacao: Operacao,
-    correlacaoId: string,
-    trabalho: () => Promise<T>,
-  ): Promise<T> {
+  /**
+   * Mantém vivos os leases do lote enquanto as operações esperam a vez ou
+   * estão no conector. O lote é executado em sequência; sem isto, o fim do
+   * lote poderia vencer antes de chegar a vez dele.
+   */
+  function manterLeases(emAberto: Map<Uuid, Uuid>, correlacaoId: string): () => Promise<void> {
     let renovando = Promise.resolve();
     const cancelar = agendar(() => {
       renovando = renovando.then(async () => {
-        try {
-          await renovarLeaseDaOperacao(
-            deps.persistencia,
-            operacao.id,
-            deps.politica,
-            contexto(operacao.solicitadaPor.id, correlacaoId),
-          );
-        } catch {
-          // Falha ao renovar não interrompe a chamada; se o lease vencer, o registro é recusado.
+        for (const [operacaoId, emNomeDe] of emAberto) {
+          try {
+            const renovada = await renovarLeaseDaOperacao(
+              deps.persistencia,
+              operacaoId,
+              deps.politica,
+              contexto(emNomeDe, correlacaoId),
+            );
+            // Perdido (venceu ou mudou de dono): para de renovar; a vez dela é recusada no gate.
+            if (!renovada.ok) emAberto.delete(operacaoId);
+          } catch {
+            // Banco indisponível: tenta na próxima renovação; o gate decide antes da chamada.
+          }
         }
       });
     }, deps.politica.renovacaoLeaseMs);
-    try {
-      return await trabalho();
-    } finally {
+    return async () => {
       cancelar();
       await renovando;
-    }
+    };
   }
 
   /** Grava o resultado e consolida o pedido numa só transação. */
@@ -286,15 +303,47 @@ export function criarExecutor(deps: DependenciasExecutor): Executor {
     }
   }
 
-  async function executarOperacao(
+  /**
+   * Gate imediatamente antes da chamada externa: renova o lease desta
+   * operação, o que só funciona se ele ainda for deste worker e não tiver
+   * vencido. Sem lease válido, nada é enviado ao destino.
+   */
+  async function exigirLeaseAntesDaChamada(
     operacao: Operacao,
     correlacaoId: string,
+  ): Promise<{ readonly ok: true; readonly operacao: Operacao } | DesfechoOperacao> {
+    try {
+      const renovada = await renovarLeaseDaOperacao(
+        deps.persistencia,
+        operacao.id,
+        deps.politica,
+        contexto(operacao.solicitadaPor.id, correlacaoId),
+      );
+      return renovada.ok
+        ? { ok: true, operacao: renovada.valor }
+        : { tipo: 'naoExecutada', operacaoId: operacao.id, erro: renovada.erro };
+    } catch (erro) {
+      return {
+        tipo: 'naoExecutada',
+        operacaoId: operacao.id,
+        erro: erroDe('LEASE_INVALIDO'),
+        causa: descrever(erro),
+      };
+    }
+  }
+
+  async function executarOperacao(
+    reservada: Operacao,
+    correlacaoId: string,
   ): Promise<DesfechoOperacao> {
-    const item = await deps.persistencia.executar((tx) => tx.fila.itemPorId(operacao.itemId));
+    const item = await deps.persistencia.executar((tx) => tx.fila.itemPorId(reservada.itemId));
+    const gate = await exigirLeaseAntesDaChamada(reservada, correlacaoId);
+    if (!('ok' in gate)) return gate;
+    const operacao = gate.operacao;
     const resultado =
       item === null
         ? resultadoSemChamada(operacao, 'semEfeito', 'ITEM_INEXISTENTE', 'Item não encontrado.')
-        : await comLeaseRenovado(operacao, correlacaoId, () => chamarConector(operacao, item));
+        : await chamarConector(operacao, item);
     return registrar(operacao.id, resultado, correlacaoId, operacao.solicitadaPor.id);
   }
 
@@ -310,10 +359,18 @@ export function criarExecutor(deps: DependenciasExecutor): Executor {
         deps.persistencia,
         deps.politica,
         contexto(null, correlacaoId),
+        deps.limitePorSistema === undefined ? {} : { limitePorSistema: deps.limitePorSistema },
       );
+      const emAberto = new Map(reservadas.map((op) => [op.id, op.solicitadaPor.id] as const));
+      const pararDeRenovar = manterLeases(emAberto, correlacaoId);
       const desfechos: DesfechoOperacao[] = [];
-      for (const operacao of reservadas) {
-        desfechos.push(await executarOperacao(operacao, correlacaoId));
+      try {
+        for (const operacao of reservadas) {
+          desfechos.push(await executarOperacao(operacao, correlacaoId));
+          emAberto.delete(operacao.id);
+        }
+      } finally {
+        await pararDeRenovar();
       }
       return {
         recuperadas: {
