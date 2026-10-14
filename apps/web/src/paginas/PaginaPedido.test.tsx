@@ -22,6 +22,21 @@ afterEach(() => {
 
 const CAMINHO = `/pedidos/${ID_PEDIDO}`;
 
+function operacaoSimulada(status: 'pendente' | 'reservada' | 'concluida') {
+  return {
+    id: '99999999-9999-4999-8999-999999999999',
+    acao: 'provisionar' as const,
+    modo: 'simulado' as const,
+    status,
+    efeito: null,
+    codigo: null,
+    mensagem: null,
+    tentativas: 0,
+    criadaEm: '2026-10-14T12:00:00.000Z',
+    atualizadaEm: '2026-10-14T12:00:00.000Z',
+  };
+}
+
 function botao(nome: string | RegExp) {
   return screen.getByRole('button', { name: nome });
 }
@@ -298,6 +313,280 @@ describe('detalhe do pedido', () => {
         await vi.advanceTimersByTimeAsync(15_000);
       });
       expect(api.detalharPedido.mock.calls.length).toBe(total);
+    });
+
+    it('simulação: acompanha operação pendente → reservada → concluída sem confirmar acesso real', async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      const fases = ['pendente', 'reservada', 'concluida'] as const;
+      let chamadas = 0;
+      const api = criarApiFalsa({
+        detalharPedido: async () => {
+          const fase = fases[Math.min(chamadas, fases.length - 1)]!;
+          chamadas += 1;
+          return detalhe({
+            status: 'aprovado',
+            itens: [itemResultado({ operacoes: [operacaoSimulada(fase)] })],
+          });
+        },
+      });
+      renderizarApp(CAMINHO, api);
+      expect(await screen.findByText(/Execução em andamento/)).toBeTruthy();
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5_100);
+      });
+      await waitFor(() => expect(api.detalharPedido).toHaveBeenCalledTimes(2));
+      expect(screen.getByText(/Execução em andamento/)).toBeTruthy();
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5_100);
+      });
+      await waitFor(() => expect(api.detalharPedido).toHaveBeenCalledTimes(3));
+      // Sem operação ativa: o aviso some, o item segue sem confirmação e a consulta para.
+      await waitFor(() => expect(screen.queryByText(/Execução em andamento/)).toBeNull());
+      expect(screen.queryByText('Confirmado')).toBeNull();
+      expect(screen.getByRole('list', { name: 'Operações do item' }).textContent).toContain(
+        'simulado, não confirma acesso real',
+      );
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(15_000);
+      });
+      expect(api.detalharPedido).toHaveBeenCalledTimes(3);
+    });
+
+    it('401 durante a atualização em segundo plano troca os dados por "sessão expirou"', async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      let chamadas = 0;
+      const api = criarApiFalsa({
+        detalharPedido: async () => {
+          chamadas += 1;
+          if (chamadas > 1) throw erroApi(401);
+          return detalhe({
+            status: 'aprovado',
+            itens: [itemResultado({ operacoes: [operacaoSimulada('pendente')] })],
+          });
+        },
+      });
+      const { router } = renderizarApp(CAMINHO, api);
+      expect(await screen.findByText('100.***.***-09')).toBeTruthy();
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5_100);
+      });
+      expect(await screen.findByText(/Sua sessão expirou/)).toBeTruthy();
+      expect(screen.queryByText('100.***.***-09')).toBeNull();
+      expect(screen.queryByText('100.***.***-09')).toBeNull();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(15_000);
+      });
+      expect(api.detalharPedido).toHaveBeenCalledTimes(2);
+
+      await userEvent.click(screen.getByRole('button', { name: 'Entrar novamente' }));
+      expect(router.state.location.pathname).toBe('/login');
+    });
+
+    it('403 durante a atualização em segundo plano remove os dados e mostra falta de permissão', async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      let chamadas = 0;
+      const api = criarApiFalsa({
+        detalharPedido: async () => {
+          chamadas += 1;
+          if (chamadas > 1) throw erroApi(403);
+          return detalhe({
+            status: 'aprovado',
+            itens: [itemResultado({ operacoes: [operacaoSimulada('reservada')] })],
+          });
+        },
+      });
+      renderizarApp(CAMINHO, api);
+      expect(await screen.findByText('100.***.***-09')).toBeTruthy();
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5_100);
+      });
+      expect(await screen.findByText(/não tem permissão/)).toBeTruthy();
+      expect(screen.queryByText('100.***.***-09')).toBeNull();
+    });
+
+    it('falha transitória na atualização mantém os dados, avisa e se recupera', async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      let chamadas = 0;
+      const api = criarApiFalsa({
+        detalharPedido: async () => {
+          chamadas += 1;
+          if (chamadas === 2) throw erroApi(503);
+          return detalhe({
+            status: 'aprovado',
+            itens: [itemResultado({ operacoes: [operacaoSimulada('pendente')] })],
+          });
+        },
+      });
+      renderizarApp(CAMINHO, api);
+      expect(await screen.findByText('100.***.***-09')).toBeTruthy();
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5_100);
+      });
+      expect(await screen.findByText(/Não foi possível atualizar agora/)).toBeTruthy();
+      expect(screen.getByText('100.***.***-09')).toBeTruthy();
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5_100);
+      });
+      await waitFor(() =>
+        expect(screen.queryByText(/Não foi possível atualizar agora/)).toBeNull(),
+      );
+      expect(screen.getByText('100.***.***-09')).toBeTruthy();
+    });
+
+    it('a confirmação aberta é invalidada quando o pedido muda por atualização em segundo plano', async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      let chamadas = 0;
+      const api = criarApiFalsa({
+        detalharPedido: async () => {
+          chamadas += 1;
+          return detalhe({
+            status: 'aprovado',
+            versao: chamadas === 1 ? 3 : 4,
+            itens: [itemResultado({ operacoes: [operacaoSimulada('pendente')] })],
+          });
+        },
+      });
+      renderizarApp(CAMINHO, api);
+      await userEvent.click(await screen.findByRole('button', { name: 'Reabrir para revisão' }));
+      expect(await screen.findByRole('dialog')).toBeTruthy();
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5_100);
+      });
+      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+      expect(screen.getByRole('alert').textContent).toContain('foi alterado');
+      expect(api.executarComando).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('conflito de versão', () => {
+    it('fecha a confirmação, avisa fora do diálogo e exige nova confirmação na versão atual', async () => {
+      let chamadas = 0;
+      const api = criarApiFalsa({
+        detalharPedido: async () => {
+          chamadas += 1;
+          return chamadas === 1
+            ? detalhe({ versao: 3 })
+            : detalhe({
+                versao: 4,
+                revisao: {
+                  ...detalhe().revisao,
+                  identidade: { ...detalhe().revisao.identidade!, login: 'maria.souza2' },
+                },
+              });
+        },
+        executarComando: vi
+          .fn()
+          .mockRejectedValueOnce(
+            erroApi(409, 'O registro foi alterado por outra pessoa.', 'CONFLITO_DE_VERSAO'),
+          )
+          .mockResolvedValue({ ok: true, status: 'aprovado', versao: 5, operacaoId: null }),
+      });
+      renderizarApp(CAMINHO, api, PERFIL_REVISOR);
+      await screen.findByRole('heading', { level: 1 });
+      await userEvent.click(botao('Aprovar'));
+      await confirmarNoDialogo('Aprovar');
+
+      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+      const alerta = await screen.findByRole('alert');
+      expect(alerta.textContent).toContain('alterado por outra pessoa');
+      expect(alerta.textContent).toContain('confirme a ação de novo');
+      expect(await screen.findByText(/versão 4/)).toBeTruthy();
+      expect(screen.getByText('maria.souza2')).toBeTruthy();
+      // A confirmação antiga não executa na versão nova.
+      expect(api.executarComando).toHaveBeenCalledTimes(1);
+      expect(api.executarComando).toHaveBeenLastCalledWith(ID_PEDIDO, 3, {
+        acao: 'aprovar',
+        dados: {},
+      });
+
+      // Só uma nova abertura, depois de rever, vale para a versão 4.
+      await userEvent.click(botao('Aprovar'));
+      await confirmarNoDialogo('Aprovar');
+      expect(api.executarComando).toHaveBeenCalledTimes(2);
+      expect(api.executarComando).toHaveBeenLastCalledWith(ID_PEDIDO, 4, {
+        acao: 'aprovar',
+        dados: {},
+      });
+    });
+  });
+
+  describe('registro de acesso manual', () => {
+    const comItens = (status: Parameters<typeof detalhe>[0] = {}) =>
+      detalhe({
+        status: 'aprovado',
+        itens: [
+          itemResultado({ status: 'pendente' }),
+          itemResultado({ id: ID_ITEM_JIRA, sistema: 'jira', status: 'confirmado' }),
+        ],
+        ...status,
+      });
+
+    it('aparece em pedido aprovado com item pendente e lista só os itens elegíveis', async () => {
+      renderizarApp(CAMINHO, criarApiFalsa({ detalharPedido: async () => comItens() }));
+      await userEvent.click(await screen.findByRole('button', { name: 'Registrar acesso manual' }));
+      const dialogo = await screen.findByRole('dialog');
+      const opcoes = within(dialogo).getAllByRole('option');
+      expect(opcoes).toHaveLength(1);
+      expect((opcoes[0] as HTMLOptionElement).value).toBe(ID_ITEM_AD);
+    });
+
+    it.each(['concluido', 'rejeitado', 'pendenteAprovacao'] as const)(
+      'não aparece com o pedido %s',
+      async (status) => {
+        renderizarApp(CAMINHO, criarApiFalsa({ detalharPedido: async () => comItens({ status }) }));
+        await screen.findByRole('heading', { level: 1 });
+        expect(screen.queryByRole('button', { name: 'Registrar acesso manual' })).toBeNull();
+      },
+    );
+
+    it.each(['confirmado', 'desconhecido', 'emExecucao'] as const)(
+      'não aparece quando o único item está %s',
+      async (status) => {
+        renderizarApp(
+          CAMINHO,
+          criarApiFalsa({
+            detalharPedido: async () =>
+              detalhe({ status: 'aprovado', itens: [itemResultado({ status })] }),
+          }),
+        );
+        await screen.findByRole('heading', { level: 1 });
+        expect(screen.queryByRole('button', { name: 'Registrar acesso manual' })).toBeNull();
+      },
+    );
+
+    it.each(['pendente', 'reservada'] as const)(
+      'não aparece quando o item tem operação %s',
+      async (fase) => {
+        renderizarApp(
+          CAMINHO,
+          criarApiFalsa({
+            detalharPedido: async () =>
+              detalhe({
+                status: 'aprovado',
+                itens: [itemResultado({ operacoes: [operacaoSimulada(fase)] })],
+              }),
+          }),
+        );
+        await screen.findByRole('heading', { level: 1 });
+        expect(screen.queryByRole('button', { name: 'Registrar acesso manual' })).toBeNull();
+        expect(screen.queryByRole('button', { name: /Provisionar/ })).toBeNull();
+      },
+    );
+
+    it.each([
+      ['revisor', PERFIL_REVISOR],
+      ['auditor', PERFIL_AUDITOR],
+    ] as const)('não aparece para o perfil %s', async (_nome, perfil) => {
+      renderizarApp(CAMINHO, criarApiFalsa({ detalharPedido: async () => comItens() }), perfil);
+      await screen.findByRole('heading', { level: 1 });
+      expect(screen.queryByRole('button', { name: 'Registrar acesso manual' })).toBeNull();
     });
   });
 

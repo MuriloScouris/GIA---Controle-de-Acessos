@@ -27,7 +27,18 @@ import { useSessao } from '../sessao/Sessao.js';
 /** Itens que o domínio aceita executar de novo: pendente, falhou ou parcial. */
 const STATUS_ITEM_EXECUTAVEL = ['pendente', 'falhou', 'parcial'];
 const STATUS_PEDIDO_EXECUTAVEL = ['aprovado', 'concluidoComErros'];
+/** Operação que ainda ocupa o item (na fila ou reservada por um worker), real ou simulada. */
+const STATUS_OPERACAO_ATIVA = ['pendente', 'reservada'];
 const INTERVALO_ATUALIZACAO_MS = 5_000;
+
+function temOperacaoAtiva(item: ResultadoItem): boolean {
+  return item.operacoes.some((operacao) => STATUS_OPERACAO_ATIVA.includes(operacao.status));
+}
+
+/** Há trabalho em andamento: pedido em execução ou operação ativa em algum item (inclusive simulada). */
+function acompanhar(pedido: PedidoDetalhe): boolean {
+  return pedido.status === 'emExecucao' || pedido.itens.some(temOperacaoAtiva);
+}
 
 type Dialogo =
   | { readonly tipo: 'aprovar' }
@@ -101,13 +112,14 @@ export function PaginaPedido() {
 function TelaPedido({ pedidoId }: { pedidoId: string }) {
   const api = useApi();
   const { perfil } = useSessao();
-  const { estado, recarregar } = useCarregar<PedidoDetalhe>(() => api.detalharPedido(pedidoId), {
-    atualizarEnquanto: {
-      intervaloMs: INTERVALO_ATUALIZACAO_MS,
-      quando: (dados) => dados.status === 'emExecucao',
-    },
-  });
+  const { estado, recarregar, atualizacaoFalhou } = useCarregar<PedidoDetalhe>(
+    () => api.detalharPedido(pedidoId),
+    { atualizarEnquanto: { intervaloMs: INTERVALO_ATUALIZACAO_MS, quando: acompanhar } },
+  );
   const [dialogo, setDialogo] = useState<Dialogo | null>(null);
+  /** Versão do pedido vista quando a confirmação foi aberta; é a única que o comando pode enviar. */
+  const [versaoVista, setVersaoVista] = useState(0);
+  const [conflito, setConflito] = useState<string | null>(null);
   const [aviso, setAviso] = useState<string | null>(null);
   const [motivo, setMotivo] = useState('');
   const [observacao, setObservacao] = useState('');
@@ -133,28 +145,38 @@ function TelaPedido({ pedidoId }: { pedidoId: string }) {
   const permitido = (acao: AcaoFuncional) => podeFazer(perfil, acao);
   const pendente = detalhe.status === 'pendenteAprovacao';
   const executavel = STATUS_PEDIDO_EXECUTAVEL.includes(detalhe.status);
-  const itensExecutaveis = detalhe.itens.filter((item) =>
-    STATUS_ITEM_EXECUTAVEL.includes(item.status),
+  /** Pendente, falhou ou parcial e sem operação ativa: elegível para executar ou registrar à mão. */
+  const itensElegiveis = detalhe.itens.filter(
+    (item) => STATUS_ITEM_EXECUTAVEL.includes(item.status) && !temOperacaoAtiva(item),
   );
   const revisao = detalhe.revisao;
+  // Se o pedido mudou depois de aberta a confirmação, ela deixa de valer: exige rever e confirmar de novo.
+  const obsoleta = dialogo !== null && versaoVista !== detalhe.versao;
+  const dialogoAtivo = obsoleta ? null : dialogo;
 
   function abrir(novo: Dialogo) {
     setMotivo('');
     setObservacao('');
-    setItemManual(detalhe.itens[0]?.id ?? '');
+    setItemManual(itensElegiveis[0]?.id ?? '');
     setIdentidade({
       login: revisao.identidade?.login ?? '',
       email: revisao.identidade?.email ?? '',
       nomeExibicao: revisao.identidade?.nomeExibicao ?? '',
     });
     setAviso(null);
+    setConflito(null);
+    setVersaoVista(detalhe.versao);
     setDialogo(novo);
   }
 
-  /** Envia o comando com a versão vista; em conflito, recarrega e mantém a mensagem da recusa. */
+  /**
+   * Envia o comando com a versão vista ao abrir a confirmação. Em conflito de versão, fecha a
+   * confirmação, mostra a recusa fora do diálogo e recarrega: a pessoa revê o pedido atual e abre
+   * uma nova confirmação, que passa a valer para a versão efetivamente vista.
+   */
   async function enviar(comando: ComandoDoPedido) {
     try {
-      const resposta = await api.executarComando(detalhe.id, detalhe.versao, comando);
+      const resposta = await api.executarComando(detalhe.id, versaoVista, comando);
       setDialogo(null);
       const filas = resposta.operacaoIds?.length ?? (resposta.operacaoId ? 1 : 0);
       setAviso(
@@ -164,7 +186,12 @@ function TelaPedido({ pedidoId }: { pedidoId: string }) {
       );
       recarregar();
     } catch (erro) {
-      if (erro instanceof ErroApi && erro.codigo === 'CONFLITO_DE_VERSAO') recarregar();
+      if (erro instanceof ErroApi && erro.codigo === 'CONFLITO_DE_VERSAO') {
+        setDialogo(null);
+        setConflito(erro.message);
+        recarregar();
+        return;
+      }
       throw erro;
     }
   }
@@ -187,9 +214,21 @@ function TelaPedido({ pedidoId }: { pedidoId: string }) {
         {ROTULO_VINCULO[detalhe.tipoVinculo]} · versão {detalhe.versao} · atualizado em{' '}
         {formatarInstante(detalhe.atualizadoEm)}
       </p>
-      {detalhe.status === 'emExecucao' && (
+      {(conflito !== null || obsoleta) && (
+        <p role="alert" className="mensagem-erro">
+          {conflito ?? 'O pedido foi alterado enquanto a confirmação estava aberta.'} Revise o
+          pedido atualizado e confirme a ação de novo.
+        </p>
+      )}
+      {acompanhar(detalhe) && (
         <p role="status" className="aviso-inline">
           Execução em andamento: o resultado por item é atualizado automaticamente.
+        </p>
+      )}
+      {atualizacaoFalhou && (
+        <p role="status" className="aviso-inline">
+          Não foi possível atualizar agora; exibindo dados anteriores, que podem estar
+          desatualizados.
         </p>
       )}
       {detalhe.status === 'concluidoComErros' && (
@@ -293,6 +332,7 @@ function TelaPedido({ pedidoId }: { pedidoId: string }) {
                   {resultado &&
                     executavel &&
                     STATUS_ITEM_EXECUTAVEL.includes(resultado.status) &&
+                    !temOperacaoAtiva(resultado) &&
                     permitido('executarOperacoes') && (
                       <Button
                         className="botao-secundario"
@@ -345,20 +385,18 @@ function TelaPedido({ pedidoId }: { pedidoId: string }) {
               </Button>
             </>
           )}
-          {executavel && permitido('executarOperacoes') && itensExecutaveis.length > 0 && (
+          {executavel && permitido('executarOperacoes') && itensElegiveis.length > 0 && (
             <Button className="botao-primario" onPress={() => abrir({ tipo: 'executarTodos' })}>
               {detalhe.status === 'aprovado'
                 ? 'Provisionar todos os itens'
                 : 'Reprocessar pendentes e com erro'}
             </Button>
           )}
-          {detalhe.status === 'concluidoComErros' &&
-            permitido('registrarManualReconciliar') &&
-            detalhe.itens.length > 0 && (
-              <Button className="botao-secundario" onPress={() => abrir({ tipo: 'acessoManual' })}>
-                Registrar acesso manual
-              </Button>
-            )}
+          {executavel && permitido('registrarManualReconciliar') && itensElegiveis.length > 0 && (
+            <Button className="botao-secundario" onPress={() => abrir({ tipo: 'acessoManual' })}>
+              Registrar acesso manual
+            </Button>
+          )}
           {['aprovado', 'concluidoComErros', 'rejeitado'].includes(detalhe.status) &&
             permitido('decidirPedido') && (
               <Button className="botao-secundario" onPress={() => abrir({ tipo: 'reabrir' })}>
@@ -376,7 +414,7 @@ function TelaPedido({ pedidoId }: { pedidoId: string }) {
       </section>
 
       <DialogoConfirmacao
-        aberto={dialogo?.tipo === 'aprovar'}
+        aberto={dialogoAtivo?.tipo === 'aprovar'}
         titulo="Aprovar pedido?"
         descricao="Aprovar só registra a decisão: nada é criado nos sistemas de destino. A execução é um passo separado."
         confirmarRotulo="Aprovar"
@@ -384,7 +422,7 @@ function TelaPedido({ pedidoId }: { pedidoId: string }) {
         onFechar={() => setDialogo(null)}
       />
       <DialogoConfirmacao
-        aberto={dialogo?.tipo === 'rejeitar'}
+        aberto={dialogoAtivo?.tipo === 'rejeitar'}
         titulo="Rejeitar pedido?"
         confirmarRotulo="Rejeitar"
         desabilitarConfirmar={textoObrigatorio(motivo)}
@@ -397,7 +435,7 @@ function TelaPedido({ pedidoId }: { pedidoId: string }) {
         </label>
       </DialogoConfirmacao>
       <DialogoConfirmacao
-        aberto={dialogo?.tipo === 'reabrir'}
+        aberto={dialogoAtivo?.tipo === 'reabrir'}
         titulo="Reabrir pedido para revisão?"
         descricao="O pedido volta a pendente de aprovação e uma nova revisão é aberta."
         confirmarRotulo="Reabrir"
@@ -411,7 +449,7 @@ function TelaPedido({ pedidoId }: { pedidoId: string }) {
         </label>
       </DialogoConfirmacao>
       <DialogoConfirmacao
-        aberto={dialogo?.tipo === 'recalcular'}
+        aberto={dialogoAtivo?.tipo === 'recalcular'}
         titulo="Recalcular identidade?"
         descricao="A identidade é refeita a partir dos dados do RH e verificada de novo nos diretórios. Ajustes manuais são descartados."
         confirmarRotulo="Recalcular"
@@ -419,7 +457,7 @@ function TelaPedido({ pedidoId }: { pedidoId: string }) {
         onFechar={() => setDialogo(null)}
       />
       <DialogoConfirmacao
-        aberto={dialogo?.tipo === 'editarIdentidade'}
+        aberto={dialogoAtivo?.tipo === 'editarIdentidade'}
         titulo="Editar identidade"
         confirmarRotulo="Salvar identidade"
         desabilitarConfirmar={
@@ -466,7 +504,7 @@ function TelaPedido({ pedidoId }: { pedidoId: string }) {
         </label>
       </DialogoConfirmacao>
       <DialogoConfirmacao
-        aberto={dialogo?.tipo === 'executarTodos'}
+        aberto={dialogoAtivo?.tipo === 'executarTodos'}
         titulo={detalhe.status === 'aprovado' ? 'Provisionar todos os itens?' : 'Reprocessar?'}
         descricao="Será gravada a intenção de execução na fila; um worker a executa depois. Itens já confirmados não são executados de novo. Resultado simulado nunca vira confirmação."
         confirmarRotulo="Solicitar execução"
@@ -474,19 +512,19 @@ function TelaPedido({ pedidoId }: { pedidoId: string }) {
         onFechar={() => setDialogo(null)}
       />
       <DialogoConfirmacao
-        aberto={dialogo?.tipo === 'executarItem'}
-        titulo={`Executar ${dialogo?.tipo === 'executarItem' ? nomeSistema(dialogo.sistema) : ''}?`}
+        aberto={dialogoAtivo?.tipo === 'executarItem'}
+        titulo={`Executar ${dialogoAtivo?.tipo === 'executarItem' ? nomeSistema(dialogoAtivo.sistema) : ''}?`}
         descricao="Será gravada a intenção de execução só deste item; um worker a executa depois."
         confirmarRotulo="Solicitar execução"
         onConfirmar={() =>
-          dialogo?.tipo === 'executarItem'
-            ? enviar({ acao: 'solicitarExecucao', dados: { itemIds: [dialogo.itemId] } })
+          dialogoAtivo?.tipo === 'executarItem'
+            ? enviar({ acao: 'solicitarExecucao', dados: { itemIds: [dialogoAtivo.itemId] } })
             : Promise.resolve()
         }
         onFechar={() => setDialogo(null)}
       />
       <DialogoConfirmacao
-        aberto={dialogo?.tipo === 'acessoManual'}
+        aberto={dialogoAtivo?.tipo === 'acessoManual'}
         titulo="Registrar acesso manual"
         descricao="Declara um acesso feito fora do Gia. Fica auditado e não prova a conferência no destino."
         confirmarRotulo="Registrar"
@@ -502,7 +540,7 @@ function TelaPedido({ pedidoId }: { pedidoId: string }) {
         <label>
           Item
           <select value={itemManual} onChange={(e) => setItemManual(e.target.value)}>
-            {detalhe.itens.map((item) => (
+            {itensElegiveis.map((item) => (
               <option key={item.id} value={item.id}>
                 {nomeSistema(item.sistema)} ({ROTULO_STATUS_ITEM[item.status]})
               </option>

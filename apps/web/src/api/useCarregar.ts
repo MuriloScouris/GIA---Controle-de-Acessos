@@ -25,8 +25,9 @@ interface Opcoes<T> {
 export function useCarregar<T>(
   carregar: () => Promise<T>,
   opcoes: Opcoes<T> = {},
-): { estado: EstadoCarga<T>; recarregar: () => void } {
+): { estado: EstadoCarga<T>; recarregar: () => void; atualizacaoFalhou: boolean } {
   const [estado, setEstado] = useState<EstadoCarga<T>>({ situacao: 'carregando' });
+  const [atualizacaoFalhou, setAtualizacaoFalhou] = useState(false);
   const [contador, setContador] = useState(0);
   const carregarRef = useRef(carregar);
   const ultimoRef = useRef<T | null>(null);
@@ -50,10 +51,12 @@ export function useCarregar<T>(
       .then((dados) => {
         if (!ativo) return;
         ultimoRef.current = dados;
+        setAtualizacaoFalhou(false);
         setEstado({ situacao: 'ok', dados });
       })
       .catch((erro: unknown) => {
         if (!ativo) return;
+        ultimoRef.current = null;
         setEstado({
           situacao: 'erro',
           erro: erro instanceof ErroApi ? erro : new ErroApi('Falha inesperada'),
@@ -77,9 +80,22 @@ export function useCarregar<T>(
         .then((dados) => {
           if (!ativo) return;
           ultimoRef.current = dados;
+          setAtualizacaoFalhou(false);
           setEstado({ situacao: 'ok', dados });
         })
-        .catch(() => undefined);
+        .catch((erro: unknown) => {
+          if (!ativo) return;
+          if (erro instanceof ErroApi && (erro.status === 401 || erro.status === 403)) {
+            // Sessão expirada ou acesso retirado: para de consultar e troca a tela pelo erro,
+            // sem manter na tela dados que a pessoa já não pode ver.
+            ultimoRef.current = null;
+            setAtualizacaoFalhou(false);
+            setEstado({ situacao: 'erro', erro });
+          } else {
+            // Falha transitória: mantém os dados e avisa que a atualização falhou.
+            setAtualizacaoFalhou(true);
+          }
+        });
     }, intervaloMs);
     return () => {
       ativo = false;
@@ -87,5 +103,5 @@ export function useCarregar<T>(
     };
   }, [intervaloMs]);
 
-  return { estado, recarregar };
+  return { estado, recarregar, atualizacaoFalhou };
 }
