@@ -11,8 +11,13 @@
   },
   "devDependencies": {
     "@gia/api": "workspace:*",
+    "@gia/conectores": "workspace:*",
     "@gia/contratos": "workspace:*",
+    "@gia/documentos": "workspace:*",
+    "@gia/dominio": "workspace:*",
+    "@gia/persistencia": "workspace:*",
     "@gia/worker": "workspace:*",
+    "fastify": "catalog:",
     "@types/node": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"

@@ -24,6 +24,8 @@ export const TEMPO_BANCO_MS = 60_000;
 
 export interface BancoDeTeste {
   readonly db: Kysely<BancoGia>;
+  /** URL do banco descartável, para subir API ou worker apontando para ele. */
+  readonly url: string;
   /** Outra conexão ao mesmo banco, para simular uma segunda instância. */
   outraConexao(): Kysely<BancoGia>;
   descartar(): Promise<void>;
@@ -58,6 +60,7 @@ export async function criarBancoDeTeste({ migrar = true } = {}): Promise<BancoDe
   if (migrar) await migrarParaUltima(db);
   return {
     db,
+    url: url.toString(),
     outraConexao: conectar,
     async descartar() {
       await Promise.all(conexoes.map((conexao) => conexao.destroy()));
