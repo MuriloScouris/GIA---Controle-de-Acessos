@@ -76,7 +76,6 @@ describe('documento de acessos (funcionalidade 10)', () => {
     expect(documento.acessos.map((a) => a.sistema)).toEqual(['ad']);
     expect(documento.acessos[0]).toMatchObject({
       nomeSistema: 'Active Directory',
-      referenciaExterna: 'ext-ad',
       confirmadoEm: AGORA,
     });
     expect(documento.acessos[0]?.acessos[0]).toBe('conta');
@@ -149,5 +148,56 @@ describe('documento de acessos (funcionalidade 10)', () => {
         ),
       ),
     ).toBe('DOCUMENTO_INDISPONIVEL');
+  });
+});
+
+describe('documento de acessos: identificadores pessoais (revisão da PR #10)', () => {
+  it('SoftExpert confirmado com CPF ou matrícula como referência: nada disso entra no documento', () => {
+    for (const usarCpf of [true, false]) {
+      const base = concluido(['softexpert']);
+      const cpf = base.pedido.dadosRh.cpf;
+      const matricula = 'M778899';
+      const formatado = `${cpf.slice(0, 3)}.${cpf.slice(3, 6)}.${cpf.slice(6, 9)}-${cpf.slice(9)}`;
+      const c = {
+        ...base,
+        pedido: {
+          ...base.pedido,
+          // O RH colou o CPF no nome: o documento não pode repetir.
+          dadosRh: { ...base.pedido.dadosRh, matricula, nomeCompleto: `Ana Souza ${formatado}` },
+        },
+        // O adaptador do SoftExpert devolve o identificador (matrícula ?? CPF) como referência.
+        itens: base.itens.map((item) => ({ ...item, idExterno: usarCpf ? cpf : matricula })),
+        revisao: {
+          ...base.revisao,
+          identidade:
+            base.revisao.identidade === null
+              ? null
+              : { ...base.revisao.identidade, nomeExibicao: `Ana ${matricula}` },
+        },
+      };
+      const { documento } = valor(
+        emitirDocumentoDeAcessos(
+          {
+            pedido: c.pedido,
+            revisao: c.revisao,
+            colaborador: c.colaborador,
+            itens: c.itens,
+            formato: 'docx',
+          },
+          ctxExecutor(),
+        ),
+      );
+      const texto = JSON.stringify(documento);
+      for (const proibido of [cpf, formatado, matricula]) {
+        expect(texto, proibido).not.toContain(proibido);
+      }
+      expect(documento.acessos.map((a) => a.sistema)).toEqual(['softexpert']);
+      expect(Object.keys(documento.acessos[0]!).sort()).toEqual([
+        'acessos',
+        'confirmadoEm',
+        'nomeSistema',
+        'sistema',
+      ]);
+    }
   });
 });

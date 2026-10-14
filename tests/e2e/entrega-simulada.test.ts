@@ -285,13 +285,23 @@ describe.skipIf(!TEM_BANCO)('entrega ponta a ponta simulada', { timeout: TEMPO_B
     const xml = new TextDecoder().decode(lerZip(res.rawPayload).get('word/document.xml'));
     expect(xml).toContain('Formulário de acessos');
     expect(xml).toContain('jira:RH-1001');
-    for (const item of concluido.itens) {
-      expect(xml).toContain(item.idExterno!);
+    // O SoftExpert guardou a matrícula como referência externa (vetor da revisão da PR #10)...
+    const softexpert = concluido.itens.find((i) => i.sistema === 'softexpert')!;
+    expect(softexpert.idExterno).toBe(concluido.pedido!.dadosRh.matricula);
+    // ...e o documento não leva referência externa nenhuma, nem CPF ou matrícula.
+    for (const item of concluido.itens) expect(xml).not.toContain(item.idExterno!);
+    const cpf = concluido.pedido!.dadosRh.cpf;
+    for (const proibido of [
+      cpf,
+      `${cpf.slice(0, 3)}.${cpf.slice(3, 6)}.${cpf.slice(6, 9)}-${cpf.slice(9)}`,
+      concluido.pedido!.dadosRh.matricula!,
+    ]) {
+      expect(xml).not.toContain(proibido);
     }
-    // Sem CPF, matrícula ou segredo no documento.
-    expect(xml).not.toContain(concluido.pedido!.dadosRh.cpf);
-    if (concluido.pedido!.dadosRh.matricula !== null) {
-      expect(xml).not.toContain(concluido.pedido!.dadosRh.matricula);
+    for (const parte of lerZip(res.rawPayload).values()) {
+      const texto = new TextDecoder().decode(parte);
+      expect(texto).not.toContain(cpf);
+      expect(texto).not.toContain(concluido.pedido!.dadosRh.matricula!);
     }
     expect(xml).not.toMatch(/senha:|password/i);
 

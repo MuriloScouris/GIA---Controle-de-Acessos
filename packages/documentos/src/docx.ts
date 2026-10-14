@@ -71,12 +71,7 @@ function tabelaDeAcessos(documento: DocumentoDeAcessos): string {
   const borda = (lado: string) =>
     `<w:${lado} w:val="single" w:sz="4" w:space="0" w:color="808080"/>`;
   const bordas = ['top', 'left', 'bottom', 'right', 'insideH', 'insideV'].map(borda).join('');
-  const cabecalho = `<w:tr>${[
-    'Sistema',
-    'Acessos concedidos',
-    'Referência no sistema',
-    'Confirmado em',
-  ]
+  const cabecalho = `<w:tr>${['Sistema', 'Acessos concedidos', 'Confirmado em']
     .map((titulo) => celula([titulo], true))
     .join('')}</w:tr>`;
   const linhas = documento.acessos.map(
@@ -84,7 +79,6 @@ function tabelaDeAcessos(documento: DocumentoDeAcessos): string {
       `<w:tr>${[
         celula([acesso.nomeSistema]),
         celula(acesso.acessos),
-        celula(acesso.referenciaExterna === null ? [] : [acesso.referenciaExterna]),
         celula([formatarInstante(acesso.confirmadoEm)]),
       ].join('')}</w:tr>`,
   );

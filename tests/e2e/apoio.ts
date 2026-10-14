@@ -144,7 +144,11 @@ export function fornecedoresReaisDeTeste(): {
         modo: 'real',
         etapa: etapasDe(sistema, 'provisionar').at(-1) ?? null,
         codigo: 'OK',
-        referenciaExterna: `${sistema}-${ctx.itemId.slice(0, 8)}`,
+        // Como o adaptador real: o SoftExpert identifica a pessoa por matrícula ou CPF.
+        referenciaExterna:
+          ctx.parametros.sistema === 'softexpert'
+            ? ctx.parametros.identificador
+            : `${sistema}-${ctx.itemId.slice(0, 8)}`,
         mensagem: 'Concluído no destino.',
         transitorio: false,
         tentarAposMs: null,
