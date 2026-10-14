@@ -2,6 +2,7 @@ import type { Kysely } from 'kysely';
 import { Migrator, type Migration, type MigrationResultSet } from 'kysely/migration';
 import type { BancoGia } from './esquema.js';
 import * as esquemaInicial from './migracoes/0001-esquema-inicial.js';
+import * as eventosReferencias from './migracoes/0002-eventos-referencias.js';
 
 /**
  * Migrações versionadas, aplicadas em ordem pelo nome. Uma migração já
@@ -9,6 +10,7 @@ import * as esquemaInicial from './migracoes/0001-esquema-inicial.js';
  */
 export const MIGRACOES: Readonly<Record<string, Migration>> = Object.freeze({
   '0001-esquema-inicial': esquemaInicial,
+  '0002-eventos-referencias': eventosReferencias,
 });
 
 function migrador(db: Kysely<BancoGia>): Migrator {

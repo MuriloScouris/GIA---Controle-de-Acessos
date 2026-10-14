@@ -23,6 +23,16 @@ async function tabelas(b: BancoDeTeste): Promise<string[]> {
   return r.rows.map((linha) => linha.nome);
 }
 
+/** Chave primária e FKs de `eventos`. */
+async function restricoesDeEventos(b: BancoDeTeste): Promise<string[]> {
+  const r = await sql<{ nome: string }>`
+    select conname as nome from pg_constraint
+    where conrelid = 'eventos'::regclass and contype in ('f', 'p')
+    order by conname
+  `.execute(b.db);
+  return r.rows.map((linha) => linha.nome);
+}
+
 describe.skipIf(!TEM_BANCO)('migrações', { timeout: TEMPO_BANCO_MS }, () => {
   it('banco vazio vai à última migração; rodar de novo não aplica nada', async () => {
     banco = await criarBancoDeTeste({ migrar: false });
@@ -45,10 +55,19 @@ describe.skipIf(!TEM_BANCO)('migrações', { timeout: TEMPO_BANCO_MS }, () => {
     expect([...a, ...b]).toEqual(Object.keys(MIGRACOES));
   });
 
-  it('a migração inicial desfaz e refaz sem sobras', async () => {
+  it('cada migração desfaz e refaz sem sobras', async () => {
     banco = await criarBancoDeTeste();
+    expect(await desfazerUltima(banco.db)).toEqual(['0002-eventos-referencias']);
+    expect(await restricoesDeEventos(banco)).toEqual(['eventos_corrige_fk', 'eventos_pkey']);
     expect(await desfazerUltima(banco.db)).toEqual(['0001-esquema-inicial']);
     expect(await tabelas(banco)).toEqual([]);
-    expect(await migrarParaUltima(banco.db)).toEqual(['0001-esquema-inicial']);
+    expect(await migrarParaUltima(banco.db)).toEqual(Object.keys(MIGRACOES));
+    expect(await restricoesDeEventos(banco)).toEqual([
+      'eventos_colaborador_fk',
+      'eventos_corrige_fk',
+      'eventos_operacao_fk',
+      'eventos_pedido_fk',
+      'eventos_pkey',
+    ]);
   });
 });

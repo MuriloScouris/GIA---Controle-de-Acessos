@@ -7,15 +7,16 @@ em PostgreSQL, e a em memória da API (testes e desenvolvimento).
 
 ## O que garante
 
-| Garantia                       | Como                                                                                                 |
-| ------------------------------ | ---------------------------------------------------------------------------------------------------- |
-| Estado + eventos + fila juntos | Cada `executar` é uma transação; a operação gravada na fila é o outbox da intenção.                  |
-| Unicidades do modelo           | Restrições nomeadas: CPF, origem do pedido, (revisão, sistema), chave de idempotência.               |
-| Uma operação ativa por item    | Índice único parcial em `operacoes (item_id)` para `pendente`/`reservada`/`aguardandoReconciliacao`. |
-| Eventos somente inserção       | Trigger recusa `UPDATE`, `DELETE` e `TRUNCATE` em `eventos`.                                         |
-| Revisão aprovada imutável      | Trigger recusa alterar ou apagar revisão `aprovada`.                                                 |
-| Controle otimista              | A gravação exige a versão que a transação leu; senão `ErroDeConcorrencia` (a API responde 409).      |
-| Lease                          | `reservarLote` trava com `FOR UPDATE SKIP LOCKED`: workers concorrentes recebem lotes disjuntos.     |
+| Garantia                       | Como                                                                                                                                   |
+| ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------- |
+| Estado + eventos + fila juntos | Cada `executar` é uma transação; a operação gravada na fila é o outbox da intenção.                                                    |
+| Unicidades do modelo           | Restrições nomeadas: CPF, origem do pedido, (revisão, sistema), chave de idempotência.                                                 |
+| Uma operação ativa por item    | Índice único parcial em `operacoes (item_id)` para `pendente`/`reservada`/`aguardandoReconciliacao`.                                   |
+| Eventos somente inserção       | Trigger recusa `UPDATE`, `DELETE` e `TRUNCATE` em `eventos`.                                                                           |
+| Evento rastreável              | FKs de `eventos` para pedido, operação e colaborador (e para o evento corrigido).                                                      |
+| Revisão aprovada imutável      | Trigger recusa alterar ou apagar revisão `aprovada`.                                                                                   |
+| Controle otimista              | ID novo é inserido; registro existente só é atualizado na versão que a transação leu. Senão `ErroDeConcorrencia` (a API responde 409). |
+| Lease                          | `reservarLote` trava com `FOR UPDATE SKIP LOCKED`: workers concorrentes recebem lotes disjuntos.                                       |
 
 Violações viram `ErroDeIntegridade` com motivo legível; a mensagem nunca
 repete o valor que colidiu (o `detail` do PostgreSQL pode conter CPF).
