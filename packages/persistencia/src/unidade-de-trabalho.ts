@@ -1,6 +1,6 @@
 /**
- * Fronteira transacional que os casos de uso enxergam. A implementação real (PostgreSQL + Kysely,
- * ADR-0003) virá depois; no scaffold existe apenas a versão em memória para testes.
+ * Fronteira transacional que os casos de uso enxergam: tudo o que o trabalho grava é confirmado
+ * junto ou desfeito junto. Implementações: PostgreSQL (`criarPersistenciaPostgres`) e em memória.
  */
 export interface UnidadeDeTrabalho<Tx> {
   executar<T>(trabalho: (tx: Tx) => Promise<T>): Promise<T>;
