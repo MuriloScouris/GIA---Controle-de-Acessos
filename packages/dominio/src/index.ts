@@ -30,3 +30,5 @@ export * from './execucao/operacao.js';
 export * from './execucao/politica.js';
 
 export * from './eventos/evento.js';
+
+export * from './documentos/documento.js';

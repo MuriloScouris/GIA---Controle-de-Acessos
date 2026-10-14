@@ -9,6 +9,7 @@ import {
 } from '@gia/contratos';
 import type { Resultado } from '@gia/dominio';
 import type { FastifyInstance, FastifyReply } from 'fastify';
+import { gerarDocx, nomeArquivoDocumento, TIPO_DOCX } from '@gia/documentos';
 import { executarComando } from '../aplicacao/comandos.js';
 import {
   consultarItem,
@@ -17,6 +18,7 @@ import {
   listarPedidos,
 } from '../aplicacao/consultas.js';
 import type { DependenciasCasosDeUso } from '../aplicacao/dependencias.js';
+import { emitirDocumento } from '../aplicacao/documento.js';
 import { importarChamadosJira } from '../aplicacao/importar-jira.js';
 import { PESSOAS_FICTICIAS } from '../sessao/sessoes-simuladas.js';
 import {
@@ -138,6 +140,27 @@ export function registrarRotas(
     if (!params.ok) return enviarErro(reply, params.erro);
     const { pedidoId, itemId } = params.valor;
     return responder(reply, await consultarItem(casosDeUso, pedidoId, itemId, ctx.valor));
+  });
+
+  /**
+   * Documento de acessos (DOCX). Leitura com efeito de auditoria: cada
+   * download vira o evento `documentoEmitido`. GET sem CSRF para funcionar
+   * como link de download; o ator continua vindo da sessão.
+   */
+  app.get('/pedidos/:pedidoId/documento', async (request, reply) => {
+    const ctx = contextoDaRequisicao(request, deps, { escrita: false });
+    if (!ctx.ok) return enviarErro(reply, ctx.erro);
+    const params = validarEntrada(pedidoParamsSchema, request.params);
+    if (!params.ok) return enviarErro(reply, params.erro);
+    const documento = await emitirDocumento(casosDeUso, params.valor.pedidoId, ctx.valor);
+    if (!documento.ok) return enviarErro(reply, documento.erro);
+    return reply
+      .header('content-type', TIPO_DOCX)
+      .header(
+        'content-disposition',
+        `attachment; filename="${nomeArquivoDocumento(documento.valor)}"`,
+      )
+      .send(Buffer.from(gerarDocx(documento.valor)));
   });
 
   /** Comandos do pedido: `{ pedidoId, versaoEsperada, acao, dados }` (contrato). */

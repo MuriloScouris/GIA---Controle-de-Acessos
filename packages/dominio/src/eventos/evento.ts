@@ -42,7 +42,8 @@ export type TipoEvento =
   | 'liberacaoEscritaAlterada'
   | 'estadoInicialSincronizado'
   | 'alteracaoDetectadaNaSincronizacao'
-  | 'correcaoRegistrada';
+  | 'correcaoRegistrada'
+  | 'documentoEmitido';
 
 export interface Evento {
   readonly id: Uuid;

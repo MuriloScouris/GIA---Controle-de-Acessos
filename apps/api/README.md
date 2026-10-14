@@ -17,6 +17,7 @@ a operação na fila, para o worker consumir.
 | `GET /pedidos/:pedidoId`           | Pedido, proposta (identidade, verificação, itens) e resultado dos itens.       | `acompanharPedido`   |
 | `GET /pedidos/:pedidoId/itens`     | Resultado por item da revisão corrente, com as operações da fila.              | `acompanharPedido`   |
 | `GET /pedidos/:pedidoId/itens/:id` | Um item (de qualquer revisão do pedido).                                       | `acompanharPedido`   |
+| `GET /pedidos/:pedidoId/documento` | Documento de acessos (DOCX) do pedido concluído; cada download vira evento.    | `baixarDocumento`    |
 | `POST /pedidos/:pedidoId/comandos` | Comando do contrato: `{ pedidoId, versaoEsperada, acao, dados }`.              | por ação, ver abaixo |
 
 Comandos: `editarProposta` e `recalcularIdentidade` (`editarProposta`; revalidam a
@@ -63,13 +64,11 @@ regra de negócio; `501` ação ainda indisponível.
 
 ## Limitações desta entrega
 
-- **Sobe com persistência em memória** (`src/persistencia/memoria.ts`): os dados
-  se perdem ao reiniciar, não são compartilhados entre instâncias e as
-  transações são serializadas no processo. A implementação PostgreSQL + Kysely
-  (ADR-0003) já existe em `@gia/persistencia` com o mesmo contrato, e
-  `src/persistencia/postgres.test.ts` roda os casos de uso pelo HTTP sobre ela.
-  Falta só a configuração para a API subir com o banco. Um `ErroDeConcorrencia`
-  vindo do banco vira `409 CONFLITO_DE_VERSAO`.
+- **Persistência:** com `GIA_DATABASE_URL` a API sobe sobre o PostgreSQL
+  (`criarAppDoAmbiente`), o mesmo banco do worker, com as migrações aplicadas
+  antes. Sem a variável, usa a memória do processo (`src/persistencia/memoria.ts`):
+  os dados se perdem ao reiniciar e não são compartilhados com o worker. Um
+  `ErroDeConcorrencia` vindo do banco vira `409 CONFLITO_DE_VERSAO`.
 - **Sessão simulada em memória**, no lugar do OIDC com Entra ID; em produção a
   rota de login simulado não existe.
 - **Jira e diretório simulados** (`src/simuladores/`): fixtures fictícias, sem

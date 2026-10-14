@@ -420,9 +420,9 @@ importers:
 
   packages/documentos:
     dependencies:
-      '@gia/contratos':
+      '@gia/dominio':
         specifier: workspace:*
-        version: link:../contratos
+        version: link:../dominio
     devDependencies:
       '@types/node':
         specifier: 'catalog:'
@@ -476,15 +476,30 @@ importers:
       '@gia/api':
         specifier: workspace:*
         version: link:../apps/api
+      '@gia/conectores':
+        specifier: workspace:*
+        version: link:../packages/conectores
       '@gia/contratos':
         specifier: workspace:*
         version: link:../packages/contratos
+      '@gia/documentos':
+        specifier: workspace:*
+        version: link:../packages/documentos
+      '@gia/dominio':
+        specifier: workspace:*
+        version: link:../packages/dominio
+      '@gia/persistencia':
+        specifier: workspace:*
+        version: link:../packages/persistencia
       '@gia/worker':
         specifier: workspace:*
         version: link:../apps/worker
       '@types/node':
         specifier: 'catalog:'
         version: 22.20.5
+      fastify:
+        specifier: 'catalog:'
+        version: 5.12.7
       typescript:
         specifier: 'catalog:'
         version: 6.0.3
