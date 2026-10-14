@@ -16,7 +16,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@gia/contratos": "workspace:*"
+    "@gia/dominio": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "catalog:",
