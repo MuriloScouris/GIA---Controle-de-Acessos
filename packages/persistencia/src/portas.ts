@@ -7,6 +7,7 @@ import type {
   Operacao,
   PedidoAdmissao,
   Revisao,
+  Sistema,
   TipoEvento,
   Uuid,
 } from '@gia/dominio';
@@ -68,11 +69,22 @@ export type Persistencia = UnidadeDeTrabalho<Repositorios>;
  * consumidor concorrente nunca recebe as mesmas.
  */
 export interface FilaOperacoes {
-  /** Pendentes, já disponíveis e sem dependência por confirmar, em ordem de disponibilidade. */
+  /**
+   * Pendentes, já disponíveis e sem dependência por confirmar, em ordem de
+   * disponibilidade; com `sistema`, só as daquele destino.
+   */
   reservaveis(filtro: {
     readonly agora: Instante;
     readonly limite: number;
+    readonly sistema?: Sistema;
   }): Promise<readonly Operacao[]>;
+  /**
+   * Serializa, até o fim da transação, quem reserva operações do sistema
+   * (trava consultiva no banco, vale entre workers).
+   */
+  travarSistema(sistema: Sistema): Promise<void>;
+  /** Operações do sistema reservadas com lease ainda válido (em execução ou na vez). */
+  ativasNoSistema(filtro: { readonly sistema: Sistema; readonly agora: Instante }): Promise<number>;
   /** Reservadas cujo lease venceu (o worker caiu ou travou). */
   comLeaseExpirado(filtro: {
     readonly agora: Instante;

@@ -250,3 +250,64 @@ describe.skipIf(!TEM_BANCO)(
     });
   },
 );
+
+/** Operações de AD independentes (um cenário por operação). */
+async function pendentesNoAd(quantidade: number): Promise<Operacao[]> {
+  const ops: Operacao[] = [];
+  for (let i = 0; i < quantidade; i += 1) {
+    const c = cenario();
+    const op = operacao(c.itens.ad, { disponivelEm: depois(-1000 * (quantidade - i)) });
+    await gravar(c, [op]);
+    ops.push(op);
+  }
+  return ops;
+}
+
+describe.skipIf(!TEM_BANCO)('lease: limite por destino', { timeout: TEMPO_BANCO_MS }, () => {
+  it('o destino limitado só recebe as vagas livres; os demais seguem até o lote', async () => {
+    await filaLimpa();
+    const ad = await pendentesNoAd(3);
+    const jira = await pendentes(2);
+    const limites = { limitePorSistema: { ad: 1 } };
+
+    const primeiro = await reservarLote(persistencia, politica(10), ctxServico(), limites);
+    expect(primeiro.reservadas.map((o) => o.id).sort()).toEqual(
+      [ad[0]!.id, ...jira.map((o) => o.id)].sort(),
+    );
+    // A vaga do AD está ocupada por um lease válido, de qualquer worker.
+    const segundo = await reservarLote(
+      persistencia,
+      politica(10),
+      ctxServico(INICIO, 'worker-2'),
+      limites,
+    );
+    expect(segundo.reservadas).toEqual([]);
+
+    // Lease vencido não ocupa vaga.
+    const vencido = depois(LEASE);
+    const terceiro = await reservarLote(
+      persistencia,
+      politica(10),
+      ctxServico(vencido, 'worker-3'),
+      limites,
+    );
+    expect(terceiro.reservadas.map((o) => o.id)).toEqual([ad[1]!.id]);
+  });
+
+  it('reservadores simultâneos não ultrapassam o limite do destino', async () => {
+    await filaLimpa();
+    await pendentesNoAd(6);
+    const outra = criarPersistenciaPostgres(banco.outraConexao());
+    const limites = { limitePorSistema: { ad: 2 } };
+    const lotes = await Promise.all(
+      [persistencia, outra, persistencia, outra].map((p, i) =>
+        reservarLote(p, politica(10), ctxServico(INICIO, `worker-${i}`), limites),
+      ),
+    );
+    expect(lotes.flatMap((l) => l.reservadas)).toHaveLength(2);
+    const ativas = await persistencia.executar((tx) =>
+      tx.fila.ativasNoSistema({ sistema: 'ad', agora: INICIO }),
+    );
+    expect(ativas).toBe(2);
+  });
+});

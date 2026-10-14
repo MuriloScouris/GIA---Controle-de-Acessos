@@ -289,7 +289,7 @@ function repositorios(tx: Tx, configuracao: ConfiguracaoSistemas): RepositoriosC
       atual: async () => configuracao,
     },
     fila: {
-      reservaveis: ({ agora, limite }) =>
+      reservaveis: ({ agora, limite, sistema }) =>
         lerVersionados<Operacao>(
           tx,
           vistas,
@@ -298,6 +298,7 @@ function repositorios(tx: Tx, configuracao: ConfiguracaoSistemas): RepositoriosC
             select o.dados from operacoes o
             where o.status = 'pendente'
               and o.disponivel_em <= ${agora}
+              and (${sistema ?? null}::text is null or o.dados ->> 'sistema' = ${sistema ?? null})
               and (
                 o.depende_de_item_id is null
                 or exists (
@@ -310,6 +311,23 @@ function repositorios(tx: Tx, configuracao: ConfiguracaoSistemas): RepositoriosC
             for update of o skip locked
           `,
         ),
+      travarSistema: async (sistema) => {
+        await executarSql(
+          sql`select pg_advisory_xact_lock(hashtext(${`gia:fila:${sistema}`}))`,
+          tx,
+        );
+      },
+      ativasNoSistema: async ({ sistema, agora }) => {
+        const r = await executarSql(
+          sql<{ n: string }>`
+            select count(*) as n from operacoes
+            where status = 'reservada' and lease_expira_em > ${agora}
+              and dados ->> 'sistema' = ${sistema}
+          `,
+          tx,
+        );
+        return Number(r.rows[0]?.n ?? 0);
+      },
       comLeaseExpirado: ({ agora, limite }) =>
         lerVersionados<Operacao>(
           tx,
