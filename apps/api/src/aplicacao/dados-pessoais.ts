@@ -88,9 +88,13 @@ function ehValorTecnico(valor: unknown): boolean {
   );
 }
 
-/** Datas e instantes ISO 8601 dentro de texto livre também são preservados. */
+/**
+ * Datas e instantes ISO 8601 dentro de texto livre também são preservados.
+ * Só valem com fronteira: colados a letra/dígito (`778899-01-01`) são parte
+ * de um identificador, não uma data.
+ */
 const DATA_ISO =
-  /\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,9})?)?(?:Z|[+-]\d{2}:?\d{2})?)?/g;
+  /(?<![\p{L}\p{N}])\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,9})?)?(?:Z|[+-]\d{2}:?\d{2})?)?(?!\d)/gu;
 
 /** Matrículas curtas demais casariam com pedaços de outros textos. */
 const TAMANHO_MINIMO_MATRICULA = 3;
@@ -129,25 +133,26 @@ export function mascararDadosPessoais<T>(
     .sort((a, b) => b.length - a.length)
     .map((m) => [new RegExp(escaparRegex(m), 'gi'), mascararMatricula(m)] as const);
 
-  const trecho = (s: string): string =>
-    matriculas.reduce(
-      // Callback: o texto de troca é inserido literalmente, sem padrões `$`.
-      (acc, [padrao, troca]) => acc.replace(padrao, () => troca),
-      s,
-    );
-
+  /**
+   * CPF e matrícula são procurados no texto inteiro, nunca em pedaços entre
+   * datas: uma data não pode cortar um identificador (`<cpf>-01-01` e
+   * `778899-01-01` casariam `8909-01-01`/`8899-01-01`). A matrícula só fica
+   * intacta quando a ocorrência está inteira dentro de uma data legítima
+   * (ex.: `2026` em `2026-01-15`).
+   */
   const texto = (original: string): string => {
     if (UUID.test(original)) return original;
-    // CPF primeiro, no texto inteiro: a preservação de datas não pode cortar
-    // os onze dígitos (`<cpf>-01-01` casaria `8909-01-01` como data).
-    const s = mascararCpfEmTexto(original);
-    let resultado = '';
-    let inicio = 0;
-    for (const data of s.matchAll(DATA_ISO)) {
-      resultado += trecho(s.slice(inicio, data.index)) + data[0];
-      inicio = data.index + data[0].length;
-    }
-    return resultado + trecho(s.slice(inicio));
+    return matriculas.reduce((acc, [padrao, troca]) => {
+      const datas = [...acc.matchAll(DATA_ISO)].map(
+        (data) => [data.index, data.index + data[0].length] as const,
+      );
+      // Callback: o texto de troca é inserido literalmente, sem padrões `$`.
+      return acc.replace(padrao, (achado: string, posicao: number) =>
+        datas.some(([inicio, fim]) => posicao >= inicio && posicao + achado.length <= fim)
+          ? achado
+          : troca,
+      );
+    }, mascararCpfEmTexto(original));
   };
 
   const percorrer = (atual: unknown, profundidade: number): unknown => {
