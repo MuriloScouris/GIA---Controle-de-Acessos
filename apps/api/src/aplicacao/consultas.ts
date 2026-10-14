@@ -50,7 +50,7 @@ async function sensiveisDoPedido(
   return { matriculas: [pedido.dadosRh.matricula, colaborador?.matricula ?? null] };
 }
 
-async function carregarPedidoVisivel(
+export async function carregarPedidoVisivel(
   tx: Repositorios,
   pedidoId: Uuid,
   ctx: ContextoComando,
