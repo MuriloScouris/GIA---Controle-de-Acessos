@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { ConfiguracaoAmbiente, SaudeResposta } from '@gia/contratos';
 import type { Uuid } from '@gia/dominio';
+import { ErroDeConcorrencia } from '@gia/persistencia';
 import Fastify, { type FastifyInstance } from 'fastify';
 import type { DependenciasCasosDeUso } from './aplicacao/dependencias.js';
 import type {
@@ -64,6 +65,8 @@ export function criarApp(opcoes: OpcoesApp = {}): FastifyInstance {
   });
   // Mensagens internas e do framework nunca vão para a resposta.
   app.setErrorHandler(async (erro: { statusCode?: number }, _request, reply) => {
+    // Outra transação gravou o mesmo registro antes: o operador recarrega e revisa.
+    if (erro instanceof ErroDeConcorrencia) return enviarFalha(reply, 'CONFLITO_DE_VERSAO');
     const entradaInvalida =
       typeof erro.statusCode === 'number' && erro.statusCode >= 400 && erro.statusCode < 500;
     return entradaInvalida

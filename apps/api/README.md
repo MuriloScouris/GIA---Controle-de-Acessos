@@ -63,13 +63,13 @@ regra de negócio; `501` ação ainda indisponível.
 
 ## Limitações desta entrega
 
-- **Persistência em memória** (`src/persistencia/memoria.ts`): `packages/persistencia`
-  ainda não tem schema real. Os dados se perdem ao reiniciar, não são
-  compartilhados entre instâncias (a API ainda não é sem estado) e as
-  transações são serializadas no processo. Atomicidade (estado + eventos +
-  fila), unicidades e eventos somente inserção são garantidos aqui, não por
-  restrições do banco. As portas (`src/aplicacao/portas.ts`) são as que a
-  implementação PostgreSQL + Kysely (ADR-0003) vai cumprir.
+- **Sobe com persistência em memória** (`src/persistencia/memoria.ts`): os dados
+  se perdem ao reiniciar, não são compartilhados entre instâncias e as
+  transações são serializadas no processo. A implementação PostgreSQL + Kysely
+  (ADR-0003) já existe em `@gia/persistencia` com o mesmo contrato, e
+  `src/persistencia/postgres.test.ts` roda os casos de uso pelo HTTP sobre ela.
+  Falta só a configuração para a API subir com o banco. Um `ErroDeConcorrencia`
+  vindo do banco vira `409 CONFLITO_DE_VERSAO`.
 - **Sessão simulada em memória**, no lugar do OIDC com Entra ID; em produção a
   rota de login simulado não existe.
 - **Jira e diretório simulados** (`src/simuladores/`): fixtures fictícias, sem

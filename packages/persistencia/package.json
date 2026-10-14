@@ -7,19 +7,27 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./teste": {
+      "types": "./dist/teste/banco-de-teste.d.ts",
+      "default": "./dist/teste/banco-de-teste.js"
     }
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "lint": "eslint .",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "migrar": "node dist/migrar.js"
   },
   "dependencies": {
-    "@gia/contratos": "workspace:*"
+    "@gia/dominio": "workspace:*",
+    "kysely": "catalog:",
+    "pg": "catalog:"
   },
   "devDependencies": {
     "@types/node": "catalog:",
+    "@types/pg": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"
   }

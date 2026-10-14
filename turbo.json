@@ -12,7 +12,8 @@
       "dependsOn": ["^build"]
     },
     "test": {
-      "dependsOn": ["^build"]
+      "dependsOn": ["^build"],
+      "env": ["CI", "GIA_DATABASE_URL_TESTE"]
     }
   }
 }

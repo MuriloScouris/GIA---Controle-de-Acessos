@@ -12,11 +12,15 @@ import {
   type Revisao,
   type Uuid,
 } from '@gia/dominio';
+import { ErroDeIntegridade } from '@gia/persistencia';
 import type { Persistencia, Repositorios } from '../aplicacao/portas.js';
 
+export { ErroDeIntegridade };
+
 /**
- * Persistência em memória do processo, só até existir o schema real
- * (PostgreSQL + Kysely, ADR-0003). Limitações conhecidas:
+ * Persistência em memória do processo, para testes e desenvolvimento da API.
+ * A definitiva é `criarPersistenciaPostgres` (ADR-0003), com o mesmo contrato.
+ * Limitações conhecidas:
  * - tudo se perde ao reiniciar e não é compartilhado entre instâncias (a API
  *   ainda não é sem estado);
  * - transações são serializadas por uma fila única no processo;
@@ -34,14 +38,6 @@ interface Tabelas {
   readonly operacoes: Map<Uuid, Operacao>;
   eventos: RegistroEventos;
   readonly configuracao: ConfiguracaoSistemas;
-}
-
-/** Violação de unicidade ou do "somente inserção": nunca deveria passar pelas guardas do domínio. */
-export class ErroDeIntegridade extends Error {
-  constructor(motivo: string) {
-    super(`Integridade violada: ${motivo}`);
-    this.name = 'ErroDeIntegridade';
-  }
 }
 
 function copiar(tabelas: Tabelas): Tabelas {
