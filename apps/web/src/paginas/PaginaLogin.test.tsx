@@ -25,9 +25,9 @@ beforeEach(() => window.localStorage.clear());
 afterEach(cleanup);
 
 describe('tela de login', () => {
-  it('renderiza a marca Gia, o card e o aviso de ambiente de demonstração', () => {
+  it('renderiza a marca GIA, o card e o aviso de ambiente de demonstração', () => {
     renderizarLogin();
-    expect(screen.getByRole('heading', { level: 1, name: 'Bem-vindo ao Gia' })).toBeTruthy();
+    expect(screen.getByRole('heading', { level: 1, name: 'Bem-vindo ao GIA' })).toBeTruthy();
     expect(screen.getByText('Gestão do ciclo de vida de acessos.')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Entrar' })).toBeTruthy();
     expect(screen.getByText(/Ambiente de demonstração/)).toBeTruthy();

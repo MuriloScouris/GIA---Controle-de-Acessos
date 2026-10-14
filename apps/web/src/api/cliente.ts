@@ -41,7 +41,7 @@ export type ComandoDoPedido = Comando extends infer C
     : never
   : never;
 
-/** Cliente da API do Gia: toda resposta é validada pelos esquemas de `@gia/contratos`. */
+/** Cliente da API do GIA: toda resposta é validada pelos esquemas de `@gia/contratos`. */
 export function criarClienteApi(baseUrl = '', fetcher: Fetcher = (u, i) => fetch(u, i)) {
   async function pedir(caminho: string, init: RequestInit): Promise<Response> {
     try {

@@ -13,7 +13,7 @@ export interface PerfilDemo {
 export const PERFIS_DEMO: readonly PerfilDemo[] = [
   {
     id: 'administradorGia',
-    nome: 'Administrador do Gia',
+    nome: 'Administrador do GIA',
     descricao: 'Acompanha pedidos, decide, executa e consulta a auditoria.',
   },
   {

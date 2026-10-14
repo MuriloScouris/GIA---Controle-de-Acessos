@@ -8,6 +8,8 @@ import { ErroApi, type ComandoDoPedido } from '../api/cliente.js';
 import { useCarregar } from '../api/useCarregar.js';
 import { DialogoConfirmacao } from '../componentes/DialogoConfirmacao.js';
 import { ErroCarga } from '../componentes/ErroCarga.js';
+import { IconeChaveQuadrada } from '../componentes/Icones.js';
+import { LinhaDoTempoPedido } from '../componentes/LinhaDoTempoPedido.js';
 import { SeloStatus, tomDoStatusItem, tomDoStatusPedido } from '../componentes/SeloStatus.js';
 import { podeFazer } from '../permissoes.js';
 import {
@@ -70,6 +72,55 @@ function Campo({ rotulo, children }: { rotulo: string; children: ReactNode }) {
   );
 }
 
+/** Seção no padrão do draft: faixa de cabeçalho com quadradinho colorido e corpo em papel. */
+function Secao({
+  id,
+  titulo,
+  cor,
+  extra,
+  semPadding = false,
+  children,
+}: {
+  id: string;
+  titulo: string;
+  cor: 'azul' | 'roxo' | 'vermelho' | 'ciano';
+  extra?: string;
+  semPadding?: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <section className="secao" aria-labelledby={id}>
+      <div className="secao-topo">
+        <h2 id={id} className={`secao-titulo ${cor}`}>
+          {titulo}
+        </h2>
+        {extra && <span className="secao-extra">{extra}</span>}
+      </div>
+      <div className={semPadding ? 'secao-corpo sem-padding' : 'secao-corpo'}>{children}</div>
+    </section>
+  );
+}
+
+const ETAPAS_DO_CICLO = [
+  { titulo: 'Pedido recebido', texto: 'Chamado importado do Jira.' },
+  { titulo: 'Decisão do revisor', texto: 'Aprovação ou rejeição do pedido.' },
+  { titulo: 'Execução nos sistemas', texto: 'Provisionamento dos itens de acesso.' },
+];
+
+/** Última etapa alcançada do ciclo (0 a 2), derivada do status do pedido. */
+function etapaAtual(status: string): number {
+  if (status === 'pendenteAprovacao') return 0;
+  if (status === 'aprovado' || status === 'rejeitado') return 1;
+  return 2;
+}
+
+function iniciaisDe(nome: string): string {
+  const palavras = nome.split(/\s+/).filter(Boolean);
+  if (palavras.length === 0) return '?';
+  if (palavras.length === 1) return nome.slice(0, 2).toUpperCase();
+  return `${palavras[0]![0]}${palavras[palavras.length - 1]![0]}`.toUpperCase();
+}
+
 function ResultadoDoItem({ item }: { item: ResultadoItem }) {
   return (
     <div>
@@ -128,9 +179,14 @@ function TelaPedido({ pedidoId }: { pedidoId: string }) {
 
   if (estado.situacao === 'carregando') {
     return (
-      <p role="status" className="estado">
-        Carregando pedido…
-      </p>
+      <div className="estado">
+        <p role="status">Carregando pedido…</p>
+        <div className="esqueleto" aria-hidden="true">
+          <span className="esqueleto-linha" />
+          <span className="esqueleto-linha" />
+          <span className="esqueleto-linha curta" />
+        </div>
+      </div>
     );
   }
   if (estado.situacao === 'erro') {
@@ -200,20 +256,40 @@ function TelaPedido({ pedidoId }: { pedidoId: string }) {
 
   return (
     <>
-      <p>
+      <nav aria-label="Navegação estrutural" className="det-voltar">
         <Link to="/">← Voltar ao painel</Link>
-      </p>
-      <h1>
-        Pedido {detalhe.origem.idExterno} — {detalhe.dadosRh.nomeCompleto}
-      </h1>
-      <p>
-        <SeloStatus
-          rotulo={ROTULO_STATUS_PEDIDO[detalhe.status]}
-          tom={tomDoStatusPedido(detalhe.status)}
-        />{' '}
-        {ROTULO_VINCULO[detalhe.tipoVinculo]} · versão {detalhe.versao} · atualizado em{' '}
-        {formatarInstante(detalhe.atualizadoEm)}
-      </p>
+      </nav>
+      <header className="det-cabeca">
+        <div>
+          <span className="det-eyebrow">
+            <IconeChaveQuadrada />
+            Pedido de onboarding
+          </span>
+          <div className="det-codigo">
+            <code>{detalhe.id.slice(0, 8)}</code>
+            <SeloStatus
+              rotulo={ROTULO_STATUS_PEDIDO[detalhe.status]}
+              tom={tomDoStatusPedido(detalhe.status)}
+            />
+          </div>
+          <h1 className="det-titulo">
+            Pedido {detalhe.origem.idExterno} — {detalhe.dadosRh.nomeCompleto}
+          </h1>
+          <p className="det-subtitulo">
+            {ROTULO_VINCULO[detalhe.tipoVinculo]} · versão {detalhe.versao} · atualizado em{' '}
+            {formatarInstante(detalhe.atualizadoEm)}
+          </p>
+        </div>
+        <div className="det-pessoa">
+          <span className="det-pessoa-avatar" aria-hidden="true">
+            {iniciaisDe(detalhe.dadosRh.nomeCompleto)}
+          </span>
+          <div className="det-pessoa-info">
+            <strong>{detalhe.dadosRh.cargo}</strong>
+            <span>{detalhe.dadosRh.area}</span>
+          </div>
+        </div>
+      </header>
       {(conflito !== null || obsoleta) && (
         <p role="alert" className="mensagem-erro">
           {conflito ?? 'O pedido foi alterado enquanto a confirmação estava aberta.'} Revise o
@@ -244,69 +320,171 @@ function TelaPedido({ pedidoId }: { pedidoId: string }) {
         </p>
       )}
 
-      <section className="cartao" aria-labelledby="titulo-rh">
-        <h2 id="titulo-rh">Dados do RH</h2>
-        <dl className="grade-leitura">
-          <Campo rotulo="Nome completo">{detalhe.dadosRh.nomeCompleto}</Campo>
-          <Campo rotulo="CPF">{detalhe.dadosRh.cpf}</Campo>
-          <Campo rotulo="Matrícula">{detalhe.dadosRh.matricula}</Campo>
-          <Campo rotulo="E-mail corporativo sugerido">
-            {detalhe.dadosRh.emailCorporativoSugerido}
-          </Campo>
-          <Campo rotulo="Área">{detalhe.dadosRh.area}</Campo>
-          <Campo rotulo="Cargo">{detalhe.dadosRh.cargo}</Campo>
-          <Campo rotulo="Data de admissão">{detalhe.dadosRh.dataAdmissao}</Campo>
-          <Campo rotulo="Gestor">{detalhe.dadosRh.gestor}</Campo>
-        </dl>
-      </section>
+      <div className="det-grade">
+        <div className="det-coluna det-col-7">
+          <Secao id="titulo-rh" titulo="Dados do RH" cor="azul">
+            <dl className="grade-leitura">
+              <Campo rotulo="Nome completo">{detalhe.dadosRh.nomeCompleto}</Campo>
+              <Campo rotulo="CPF">{detalhe.dadosRh.cpf}</Campo>
+              <Campo rotulo="Matrícula">{detalhe.dadosRh.matricula}</Campo>
+              <Campo rotulo="E-mail corporativo sugerido">
+                {detalhe.dadosRh.emailCorporativoSugerido}
+              </Campo>
+              <Campo rotulo="Área">{detalhe.dadosRh.area}</Campo>
+              <Campo rotulo="Cargo">{detalhe.dadosRh.cargo}</Campo>
+              <Campo rotulo="Data de admissão">{detalhe.dadosRh.dataAdmissao}</Campo>
+              <Campo rotulo="Gestor">{detalhe.dadosRh.gestor}</Campo>
+            </dl>
+          </Secao>
 
-      <section className="cartao" aria-labelledby="titulo-identidade">
-        <h2 id="titulo-identidade">Identidade proposta</h2>
-        {revisao.pendenciaIdentidade && (
-          <p role="alert" className="aviso-inline">
-            Pendência: {revisao.pendenciaIdentidade.mensagem}
-          </p>
-        )}
-        {revisao.identidade ? (
-          <dl className="grade-leitura">
-            <Campo rotulo="Login">{revisao.identidade.login}</Campo>
-            <Campo rotulo="UPN">{revisao.identidade.upn}</Campo>
-            <Campo rotulo="E-mail">{revisao.identidade.email}</Campo>
-            <Campo rotulo="Nome de exibição">{revisao.identidade.nomeExibicao}</Campo>
-            <Campo rotulo="Origem">{ROTULO_ORIGEM_IDENTIDADE[revisao.identidade.origem]}</Campo>
-          </dl>
-        ) : (
-          <p className="estado">Ainda não há identidade proposta.</p>
-        )}
-        {revisao.verificacaoIdentidade && (
-          <>
-            <p>
-              Verificação nos diretórios:{' '}
-              <strong>{ROTULO_SITUACAO_IDENTIDADE[revisao.verificacaoIdentidade.situacao]}</strong>{' '}
-              (em {formatarInstante(revisao.verificacaoIdentidade.verificadaEm)})
-            </p>
-            {revisao.verificacaoIdentidade.conflitos.length > 0 && (
-              <ul className="lista-simples" aria-label="Conflitos de identidade">
-                {revisao.verificacaoIdentidade.conflitos.map((conflito) => (
-                  <li key={`${conflito.fonte}-${conflito.campo}-${conflito.valor}`}>
-                    {conflito.fonte.toUpperCase()}: {conflito.campo} {conflito.valor}
-                  </li>
-                ))}
-              </ul>
+          <Secao id="titulo-identidade" titulo="Identidade proposta" cor="azul">
+            {revisao.pendenciaIdentidade && (
+              <p role="alert" className="aviso-inline">
+                Pendência: {revisao.pendenciaIdentidade.mensagem}
+              </p>
             )}
-          </>
-        )}
-        <p className="texto-suave">
-          Revisão {revisao.numero} ({revisao.situacao === 'aprovada' ? 'aprovada' : 'rascunho'}),
-          regras {revisao.versaoRegras}.
-          {revisao.aprovadaPor &&
-            revisao.aprovadaEm &&
-            ` Aprovada por ${revisao.aprovadaPor.nome} em ${formatarInstante(revisao.aprovadaEm)}.`}
-        </p>
-      </section>
+            {revisao.identidade ? (
+              <dl className="grade-leitura">
+                <Campo rotulo="Login">{revisao.identidade.login}</Campo>
+                <Campo rotulo="UPN">{revisao.identidade.upn}</Campo>
+                <Campo rotulo="E-mail">{revisao.identidade.email}</Campo>
+                <Campo rotulo="Nome de exibição">{revisao.identidade.nomeExibicao}</Campo>
+                <Campo rotulo="Origem">{ROTULO_ORIGEM_IDENTIDADE[revisao.identidade.origem]}</Campo>
+              </dl>
+            ) : (
+              <p className="estado">Ainda não há identidade proposta.</p>
+            )}
+            {revisao.verificacaoIdentidade && (
+              <>
+                <p>
+                  Verificação nos diretórios:{' '}
+                  <strong>
+                    {ROTULO_SITUACAO_IDENTIDADE[revisao.verificacaoIdentidade.situacao]}
+                  </strong>{' '}
+                  (em {formatarInstante(revisao.verificacaoIdentidade.verificadaEm)})
+                </p>
+                {revisao.verificacaoIdentidade.conflitos.length > 0 && (
+                  <ul className="lista-simples" aria-label="Conflitos de identidade">
+                    {revisao.verificacaoIdentidade.conflitos.map((conflito) => (
+                      <li key={`${conflito.fonte}-${conflito.campo}-${conflito.valor}`}>
+                        {conflito.fonte.toUpperCase()}: {conflito.campo} {conflito.valor}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </>
+            )}
+            <p className="texto-suave">
+              Revisão {revisao.numero} ({revisao.situacao === 'aprovada' ? 'aprovada' : 'rascunho'}
+              ), regras {revisao.versaoRegras}.
+              {revisao.aprovadaPor &&
+                revisao.aprovadaEm &&
+                ` Aprovada por ${revisao.aprovadaPor.nome} em ${formatarInstante(revisao.aprovadaEm)}.`}
+            </p>
+          </Secao>
+        </div>
 
-      <section className="cartao" aria-labelledby="titulo-itens">
-        <h2 id="titulo-itens">Itens de acesso e resultado por sistema</h2>
+        <div className="det-coluna det-col-5">
+          <Secao id="titulo-ciclo" titulo="Ciclo do pedido" cor="roxo">
+            <ol className="ciclo">
+              {ETAPAS_DO_CICLO.map((etapa, indice) => {
+                const atual = etapaAtual(detalhe.status);
+                const alcancada = indice <= atual;
+                return (
+                  <li
+                    key={etapa.titulo}
+                    className={alcancada ? 'alcancada' : undefined}
+                    aria-current={indice === atual ? 'step' : undefined}
+                  >
+                    <span className="ciclo-numero">{indice + 1}</span>
+                    <div>
+                      <strong className={indice === atual ? 'atual' : undefined}>
+                        {etapa.titulo}
+                      </strong>
+                      <p>{etapa.texto}</p>
+                    </div>
+                  </li>
+                );
+              })}
+            </ol>
+          </Secao>
+
+          <Secao id="titulo-acoes" titulo="Ações" cor="vermelho">
+            <p className="texto-suave">
+              Ambiente de demonstração: as execuções são simuladas e nenhuma escrita é feita nos
+              sistemas de destino.
+            </p>
+            <div className="barra-acoes">
+              {pendente && permitido('editarProposta') && (
+                <>
+                  <Button
+                    className="botao-secundario"
+                    onPress={() => abrir({ tipo: 'editarIdentidade' })}
+                  >
+                    Editar identidade
+                  </Button>
+                  <Button
+                    className="botao-secundario"
+                    onPress={() => abrir({ tipo: 'recalcular' })}
+                  >
+                    Recalcular identidade
+                  </Button>
+                </>
+              )}
+              {pendente && permitido('decidirPedido') && (
+                <>
+                  <Button className="botao-primario" onPress={() => abrir({ tipo: 'aprovar' })}>
+                    Aprovar
+                  </Button>
+                  <Button className="botao-secundario" onPress={() => abrir({ tipo: 'rejeitar' })}>
+                    Rejeitar
+                  </Button>
+                </>
+              )}
+              {executavel && permitido('executarOperacoes') && itensElegiveis.length > 0 && (
+                <Button
+                  className="botao-primario"
+                  onPress={() =>
+                    abrir({
+                      tipo: 'executarTodos',
+                      itemIds: itensElegiveis.map((item) => item.id),
+                    })
+                  }
+                >
+                  {detalhe.status === 'aprovado'
+                    ? 'Provisionar todos os itens'
+                    : 'Reprocessar pendentes e com erro'}
+                </Button>
+              )}
+              {executavel &&
+                permitido('registrarManualReconciliar') &&
+                itensElegiveis.length > 0 && (
+                  <Button
+                    className="botao-secundario"
+                    onPress={() => abrir({ tipo: 'acessoManual' })}
+                  >
+                    Registrar acesso manual
+                  </Button>
+                )}
+              {['aprovado', 'concluidoComErros', 'rejeitado'].includes(detalhe.status) &&
+                permitido('decidirPedido') && (
+                  <Button className="botao-secundario" onPress={() => abrir({ tipo: 'reabrir' })}>
+                    Reabrir para revisão
+                  </Button>
+                )}
+            </div>
+            <p className="texto-suave">
+              Conferir existência e reconciliar dependem dos conectores reais e ainda não estão
+              disponíveis na API.
+            </p>
+            <Button className="botao-link" onPress={recarregar}>
+              Atualizar
+            </Button>
+          </Secao>
+        </div>
+      </div>
+
+      <Secao id="titulo-itens" titulo="Itens de acesso e resultado por sistema" cor="roxo">
         {revisao.itens.length === 0 ? (
           <p className="estado">Nenhum sistema habilitado para este vínculo.</p>
         ) : (
@@ -353,70 +531,17 @@ function TelaPedido({ pedidoId }: { pedidoId: string }) {
             })}
           </ul>
         )}
-      </section>
+      </Secao>
 
-      <section className="cartao" aria-labelledby="titulo-acoes">
-        <h2 id="titulo-acoes">Ações</h2>
-        <p className="texto-suave">
-          Ambiente de demonstração: as execuções são simuladas e nenhuma escrita é feita nos
-          sistemas de destino.
-        </p>
-        <div className="barra-acoes">
-          {pendente && permitido('editarProposta') && (
-            <>
-              <Button
-                className="botao-secundario"
-                onPress={() => abrir({ tipo: 'editarIdentidade' })}
-              >
-                Editar identidade
-              </Button>
-              <Button className="botao-secundario" onPress={() => abrir({ tipo: 'recalcular' })}>
-                Recalcular identidade
-              </Button>
-            </>
-          )}
-          {pendente && permitido('decidirPedido') && (
-            <>
-              <Button className="botao-primario" onPress={() => abrir({ tipo: 'aprovar' })}>
-                Aprovar
-              </Button>
-              <Button className="botao-secundario" onPress={() => abrir({ tipo: 'rejeitar' })}>
-                Rejeitar
-              </Button>
-            </>
-          )}
-          {executavel && permitido('executarOperacoes') && itensElegiveis.length > 0 && (
-            <Button
-              className="botao-primario"
-              onPress={() =>
-                abrir({ tipo: 'executarTodos', itemIds: itensElegiveis.map((item) => item.id) })
-              }
-            >
-              {detalhe.status === 'aprovado'
-                ? 'Provisionar todos os itens'
-                : 'Reprocessar pendentes e com erro'}
-            </Button>
-          )}
-          {executavel && permitido('registrarManualReconciliar') && itensElegiveis.length > 0 && (
-            <Button className="botao-secundario" onPress={() => abrir({ tipo: 'acessoManual' })}>
-              Registrar acesso manual
-            </Button>
-          )}
-          {['aprovado', 'concluidoComErros', 'rejeitado'].includes(detalhe.status) &&
-            permitido('decidirPedido') && (
-              <Button className="botao-secundario" onPress={() => abrir({ tipo: 'reabrir' })}>
-                Reabrir para revisão
-              </Button>
-            )}
-        </div>
-        <p className="texto-suave">
-          Conferir existência e reconciliar dependem dos conectores reais e ainda não estão
-          disponíveis na API.
-        </p>
-        <Button className="botao-link" onPress={recarregar}>
-          Atualizar
-        </Button>
-      </section>
+      <Secao
+        id="titulo-timeline"
+        titulo="Timeline do pedido"
+        cor="ciano"
+        extra="eventos relacionados a este pedido"
+        semPadding
+      >
+        <LinhaDoTempoPedido detalhe={detalhe} />
+      </Secao>
 
       <DialogoConfirmacao
         aberto={dialogoAtivo?.tipo === 'aprovar'}
@@ -535,7 +660,7 @@ function TelaPedido({ pedidoId }: { pedidoId: string }) {
       <DialogoConfirmacao
         aberto={dialogoAtivo?.tipo === 'acessoManual'}
         titulo="Registrar acesso manual"
-        descricao="Declara um acesso feito fora do Gia. Fica auditado e não prova a conferência no destino."
+        descricao="Declara um acesso feito fora do GIA. Fica auditado e não prova a conferência no destino."
         confirmarRotulo="Registrar"
         desabilitarConfirmar={textoObrigatorio(observacao) || itemManual === ''}
         onConfirmar={() =>
