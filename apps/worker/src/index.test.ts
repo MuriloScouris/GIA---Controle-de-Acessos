@@ -1,11 +1,12 @@
 import { ErroConfiguracao } from '@gia/contratos';
 import { describe, expect, it } from 'vitest';
-import { POLITICA_EXECUCAO_PADRAO } from '@gia/dominio';
+import { POLITICA_EXECUCAO_PADRAO, SISTEMAS } from '@gia/dominio';
 import {
   carregarConfiguracaoWorker,
   executarWorker,
   iniciar,
   LIMITE_POR_SISTEMA_PADRAO,
+  montarConectores,
 } from './index.js';
 
 describe('@gia/worker', () => {
@@ -105,6 +106,27 @@ describe('@gia/worker', () => {
       expect(() => carregarConfiguracaoWorker(env), JSON.stringify(env)).toThrow(
         new ErroConfiguracao(variaveis),
       );
+    }
+  });
+
+  it('o timeout de conexão configurado é o que os conectores usam, não o padrão de 5 s', async () => {
+    const lentos = (env: Record<string, string>) => {
+      const catalogo = montarConectores(carregarConfiguracaoWorker(env).politica);
+      for (const sistema of SISTEMAS) {
+        catalogo.simuladores[sistema].testar = () => new Promise((r) => setTimeout(r, 200));
+      }
+      return catalogo;
+    };
+    const configurado = lentos({ GIA_EXECUCAO_TIMEOUT_CONEXAO_MS: '50' });
+    const padrao = lentos({});
+    for (const sistema of SISTEMAS) {
+      expect(await configurado.conectores[sistema].testarConexao(), sistema).toMatchObject({
+        disponivel: false,
+        codigo: 'TIMEOUT',
+      });
+      expect(await padrao.conectores[sistema].testarConexao(), sistema).toMatchObject({
+        disponivel: true,
+      });
     }
   });
 

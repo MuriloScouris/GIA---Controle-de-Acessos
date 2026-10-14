@@ -27,6 +27,9 @@ export interface OpcoesCatalogoSimulado {
   readonly ouInativos?: string;
   readonly tiposSolicitacaoJira?: readonly string[];
   readonly agora?: () => Instante;
+  /** ADR-0004: tempo para abrir conexão (`testarConexao`). Padrão do motor: 5 s. */
+  readonly timeoutConexaoMs?: number;
+  /** ADR-0004: tempo de cada chamada ao fornecedor. Padrão do motor: 30 s. */
   readonly timeoutChamadaMs?: number;
 }
 
@@ -62,6 +65,7 @@ export function criarCatalogoSimulado(opcoes: OpcoesCatalogoSimulado = {}): Cata
   const comum = {
     modo: 'simulado',
     ...(opcoes.agora === undefined ? {} : { agora: opcoes.agora }),
+    ...(opcoes.timeoutConexaoMs === undefined ? {} : { timeoutConexaoMs: opcoes.timeoutConexaoMs }),
     ...(opcoes.timeoutChamadaMs === undefined ? {} : { timeoutChamadaMs: opcoes.timeoutChamadaMs }),
   } as const;
   return {

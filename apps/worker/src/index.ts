@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 import type { VariaveisAmbiente } from '@gia/contratos';
-import { criarCatalogoSimulado } from '@gia/conectores';
+import { criarCatalogoSimulado, type CatalogoSimulado } from '@gia/conectores';
+import type { PoliticaExecucao } from '@gia/dominio';
 import { criarBanco, criarPersistenciaPostgres, urlDoBanco } from '@gia/persistencia';
 import { executarCiclo } from './ciclo.js';
 import { carregarConfiguracaoWorker } from './configuracao.js';
@@ -30,6 +31,17 @@ export type {
   RelatorioLote,
 } from './executor.js';
 
+/**
+ * Conectores do worker com os timeouts da política configurada (ADR-0004):
+ * conexão e chamada valem para todos os sistemas, não os defaults do motor.
+ */
+export function montarConectores(politica: PoliticaExecucao): CatalogoSimulado {
+  return criarCatalogoSimulado({
+    timeoutConexaoMs: politica.timeoutConexaoMs,
+    timeoutChamadaMs: politica.timeoutChamadaMs,
+  });
+}
+
 /** Valida a configuração e descreve como o worker vai rodar. */
 export function iniciar(env: VariaveisAmbiente = process.env): string {
   const config = carregarConfiguracaoWorker(env);
@@ -48,7 +60,7 @@ export async function executarWorker(
   try {
     const executor = criarExecutor({
       persistencia: criarPersistenciaPostgres(db),
-      conectores: criarCatalogoSimulado({ timeoutChamadaMs: politica.timeoutChamadaMs }).conectores,
+      conectores: montarConectores(politica).conectores,
       politica,
       limitePorSistema: config.limitePorSistema,
       workerId: config.workerId,
