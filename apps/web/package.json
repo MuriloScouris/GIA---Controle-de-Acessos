@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@gia/contratos": "workspace:*",
+    "@gia/dominio": "workspace:*",
     "react": "catalog:",
     "react-aria-components": "catalog:",
     "react-dom": "catalog:",

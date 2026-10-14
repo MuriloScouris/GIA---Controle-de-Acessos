@@ -1,20 +1,24 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { RouterProvider, createMemoryRouter } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { ApiProvider } from '../api/ApiProvider.js';
 import { rotas } from '../rotas.js';
 import { PERFIS_DEMO } from '../sessao/perfis.js';
 import { SessaoProvider } from '../sessao/Sessao.js';
+import { criarApiFalsa, erroApi } from '../teste/apoio.js';
 
-function renderizarLogin() {
+function renderizarLogin(api = criarApiFalsa()) {
   const router = createMemoryRouter(rotas, { initialEntries: ['/login'] });
   render(
-    <SessaoProvider>
-      <RouterProvider router={router} />
-    </SessaoProvider>,
+    <ApiProvider api={api}>
+      <SessaoProvider>
+        <RouterProvider router={router} />
+      </SessaoProvider>
+    </ApiProvider>,
   );
-  return router;
+  return { router, api };
 }
 
 beforeEach(() => window.localStorage.clear());
@@ -36,8 +40,8 @@ describe('tela de login', () => {
     expect(document.body.textContent).not.toMatch(/Onboarding|Quanta/i);
   });
 
-  it('Entrar oferece os perfis demo e escolher um leva à página inicial com o perfil ativo', async () => {
-    const router = renderizarLogin();
+  it('Entrar oferece os perfis demo e escolher um abre a sessão no servidor e leva ao painel', async () => {
+    const { router, api } = renderizarLogin();
     await userEvent.click(screen.getByRole('button', { name: 'Entrar' }));
 
     for (const perfil of PERFIS_DEMO) {
@@ -45,31 +49,47 @@ describe('tela de login', () => {
     }
     await userEvent.click(screen.getByRole('button', { name: /Auditor/ }));
 
-    expect(router.state.location.pathname).toBe('/');
-    expect(screen.getByRole('heading', { name: 'Início' })).toBeTruthy();
-    expect(screen.getByText(/Perfil ativo:/).textContent).toContain('Auditor');
+    await waitFor(() => expect(router.state.location.pathname).toBe('/'));
+    expect(await screen.findByRole('heading', { name: 'Painel de chamados' })).toBeTruthy();
+    expect(screen.getByText('Auditor')).toBeTruthy();
     expect(window.localStorage.getItem('gia.sessaoSimulada')).toBe('auditor');
+    // O cliente só informa o papel escolhido; o ator é definido pelo servidor.
+    expect(api.abrirSessaoSimulada).toHaveBeenCalledWith('auditor');
+  });
+
+  it('se a API não abre a sessão, mostra o erro e não entra', async () => {
+    const api = criarApiFalsa({ abrirSessaoSimulada: async () => Promise.reject(erroApi(500)) });
+    const { router } = renderizarLogin(api);
+    await userEvent.click(screen.getByRole('button', { name: 'Entrar' }));
+    await userEvent.click(screen.getByRole('button', { name: /Auditor/ }));
+
+    expect((await screen.findByRole('alert')).textContent).toContain(
+      'Não foi possível abrir a sessão',
+    );
+    expect(router.state.location.pathname).toBe('/login');
+    expect(window.localStorage.getItem('gia.sessaoSimulada')).toBeNull();
   });
 
   it('Voltar fecha a escolha de perfis sem criar sessão', async () => {
-    const router = renderizarLogin();
+    const { router, api } = renderizarLogin();
     await userEvent.click(screen.getByRole('button', { name: 'Entrar' }));
     await userEvent.click(screen.getByRole('button', { name: 'Voltar' }));
     expect(screen.getByRole('button', { name: 'Entrar' })).toBeTruthy();
     expect(router.state.location.pathname).toBe('/login');
     expect(window.localStorage.getItem('gia.sessaoSimulada')).toBeNull();
+    expect(api.abrirSessaoSimulada).not.toHaveBeenCalled();
   });
 
-  it('com sessão simulada já armazenada, /login vai direto para a página inicial', () => {
+  it('com sessão simulada já armazenada, /login vai direto para o painel', () => {
     window.localStorage.setItem('gia.sessaoSimulada', 'revisor');
-    const router = renderizarLogin();
+    const { router } = renderizarLogin();
     expect(router.state.location.pathname).toBe('/');
-    expect(screen.getByText(/Perfil ativo:/).textContent).toContain('Revisor/aprovador');
+    expect(screen.getByText('Revisor/aprovador')).toBeTruthy();
   });
 
   it('ignora valor desconhecido no armazenamento', () => {
     window.localStorage.setItem('gia.sessaoSimulada', 'root');
-    const router = renderizarLogin();
+    const { router } = renderizarLogin();
     expect(router.state.location.pathname).toBe('/login');
   });
 });

@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { Button } from 'react-aria-components';
 import { Navigate } from 'react-router';
-import { PERFIS_DEMO } from '../sessao/perfis.js';
+import { useApi } from '../api/ApiProvider.js';
+import { PERFIS_DEMO, type PerfilDemo } from '../sessao/perfis.js';
 import { useSessao } from '../sessao/Sessao.js';
 import { NOME_PRODUTO, TITULO_APLICACAO } from '../titulo.js';
 
@@ -61,7 +62,25 @@ function IconeMicrosoft() {
  */
 export function PaginaLogin() {
   const { perfil, entrar } = useSessao();
+  const api = useApi();
   const [escolhendo, setEscolhendo] = useState(false);
+  const [abrindo, setAbrindo] = useState(false);
+  const [erro, setErro] = useState<string | null>(null);
+
+  /** Abre a sessão simulada no servidor (cookie) e só então guarda o perfil na interface. */
+  async function escolher(opcao: PerfilDemo) {
+    setAbrindo(true);
+    setErro(null);
+    try {
+      await api.abrirSessaoSimulada(opcao.id);
+      entrar(opcao);
+    } catch {
+      setErro(
+        'Não foi possível abrir a sessão. Verifique se a API está disponível e tente de novo.',
+      );
+      setAbrindo(false);
+    }
+  }
 
   if (perfil) return <Navigate to="/" replace />;
 
@@ -110,13 +129,22 @@ export function PaginaLogin() {
               <ul>
                 {PERFIS_DEMO.map((opcao) => (
                   <li key={opcao.id}>
-                    <Button className="login-perfil" onPress={() => entrar(opcao)}>
+                    <Button
+                      className="login-perfil"
+                      isDisabled={abrindo}
+                      onPress={() => void escolher(opcao)}
+                    >
                       <span className="login-perfil-nome">{opcao.nome}</span>
                       <span className="login-perfil-descricao">{opcao.descricao}</span>
                     </Button>
                   </li>
                 ))}
               </ul>
+              {erro && (
+                <p role="alert" className="mensagem-erro">
+                  {erro}
+                </p>
+              )}
               <Button className="botao-link" onPress={() => setEscolhendo(false)}>
                 Voltar
               </Button>

@@ -1,8 +1,9 @@
 import { Link } from 'react-aria-components';
 import type { RouteObject } from 'react-router';
 import { Layout } from './Layout.js';
-import { PaginaInicial } from './paginas/PaginaInicial.js';
 import { PaginaLogin } from './paginas/PaginaLogin.js';
+import { PaginaPedido } from './paginas/PaginaPedido.js';
+import { PainelPedidos } from './paginas/PainelPedidos.js';
 
 function NaoEncontrada() {
   return (
@@ -13,14 +14,15 @@ function NaoEncontrada() {
   );
 }
 
-/** Roteamento explícito. Telas de negócio entram em issues próprias. */
+/** Roteamento explícito. Onboarding: painel de chamados e detalhe do pedido. */
 export const rotas: RouteObject[] = [
   { path: '/login', element: <PaginaLogin /> },
   {
     path: '/',
     element: <Layout />,
     children: [
-      { index: true, element: <PaginaInicial /> },
+      { index: true, element: <PainelPedidos /> },
+      { path: 'pedidos/:pedidoId', element: <PaginaPedido /> },
       { path: '*', element: <NaoEncontrada /> },
     ],
   },
