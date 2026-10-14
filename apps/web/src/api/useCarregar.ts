@@ -31,11 +31,15 @@ export function useCarregar<T>(
   const [contador, setContador] = useState(0);
   const carregarRef = useRef(carregar);
   const ultimoRef = useRef<T | null>(null);
-  // Ordem das consultas: só vale a resposta mais nova já recebida; respostas antigas, que chegam
-  // fora de ordem, são descartadas e nunca restauram dados nem escondem um erro mais recente.
+  // Barreira de época: cada recarga abre uma época nova e, até a resposta dela, nenhuma consulta de
+  // atualização começa e nenhuma resposta de época anterior vale. Assim, nem resposta antiga nem
+  // consulta iniciada durante a recarga restauram dados ou reativam o polling depois de um 401/403.
+  const epocaRef = useRef(0);
+  const recarregandoRef = useRef(true);
+  // Dentro da mesma época, só vale a resposta mais nova já recebida (ordem das consultas).
   const iniciadasRef = useRef(0);
   const aplicadaRef = useRef(0);
-  // Após 401/403 nada em voo pode reabrir a tela; só uma recarga explícita desbloqueia.
+  // Após 401/403 do polling, nada em voo reabre a tela; só uma recarga explícita desbloqueia.
   const bloqueadoRef = useRef(false);
   const atualizar = opcoes.atualizarEnquanto;
   const atualizarRef = useRef(atualizar);
@@ -46,18 +50,19 @@ export function useCarregar<T>(
   });
 
   const recarregar = useCallback(() => {
+    epocaRef.current += 1;
+    recarregandoRef.current = true;
+    bloqueadoRef.current = false;
     setEstado((atual) => (atual.situacao === 'erro' ? { situacao: 'carregando' } : atual));
     setContador((n) => n + 1);
   }, []);
 
   useEffect(() => {
     let ativo = true;
-    bloqueadoRef.current = false;
-    const ordem = ++iniciadasRef.current;
-    aplicadaRef.current = ordem; // a recarga invalida tudo o que já estava em voo
+    const epoca = epocaRef.current;
     const vale = () => {
-      if (!ativo || ordem < aplicadaRef.current) return false;
-      aplicadaRef.current = ordem;
+      if (!ativo || epoca !== epocaRef.current) return false;
+      recarregandoRef.current = false; // só a resposta válida da recarga libera o próximo ciclo
       return true;
     };
     carregarRef
@@ -88,10 +93,15 @@ export function useCarregar<T>(
     const id = setInterval(() => {
       const ultimo = ultimoRef.current;
       const quando = atualizarRef.current?.quando;
+      if (recarregandoRef.current || bloqueadoRef.current) return;
       if (ultimo === null || quando === undefined || !quando(ultimo)) return;
+      const epoca = epocaRef.current;
       const ordem = ++iniciadasRef.current;
       const vale = () => {
-        if (!ativo || bloqueadoRef.current || ordem < aplicadaRef.current) return false;
+        if (!ativo || epoca !== epocaRef.current) return false;
+        if (recarregandoRef.current || bloqueadoRef.current || ordem < aplicadaRef.current) {
+          return false;
+        }
         aplicadaRef.current = ordem;
         return true;
       };

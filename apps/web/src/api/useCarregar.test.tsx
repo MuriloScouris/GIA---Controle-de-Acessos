@@ -89,4 +89,62 @@ describe('useCarregar: respostas fora de ordem', () => {
     await act(async () => nova.resolver('dados novos'));
     expect(result.current.estado).toEqual({ situacao: 'ok', dados: 'dados novos' });
   });
+
+  it.each([401, 403])(
+    'recarga explícita com %s: nem consulta em voo nem a iniciada durante a recarga reativam o polling',
+    async (status) => {
+      vi.useFakeTimers();
+      const inicial = controlada<string>();
+      const pollAntigo = controlada<string>();
+      const recarga = controlada<string>();
+      const pollDuranteRecarga = controlada<string>();
+      const fila = [inicial, pollAntigo, recarga, pollDuranteRecarga];
+      const carregar = vi.fn(() => fila.shift()!.promessa);
+      const { result } = renderHook(() =>
+        useCarregar(carregar, { atualizarEnquanto: { intervaloMs: 1000, quando: () => true } }),
+      );
+      await act(async () => inicial.resolver('dados'));
+      // Poll A fica em voo e, em seguida, a pessoa pede uma recarga explícita.
+      await act(async () => vi.advanceTimersByTimeAsync(1000));
+      act(() => result.current.recarregar());
+      expect(carregar).toHaveBeenCalledTimes(3);
+
+      // O intervalo dispara durante a recarga: nenhuma consulta nova pode começar.
+      await act(async () => vi.advanceTimersByTimeAsync(3000));
+      expect(carregar).toHaveBeenCalledTimes(3);
+
+      await act(async () => recarga.rejeitar(new ErroApi('negado', status)));
+      expect(result.current.estado.situacao).toBe('erro');
+
+      // A consulta antiga chega depois e não restaura os dados.
+      await act(async () => pollAntigo.resolver('dados antigos'));
+      await act(async () => pollDuranteRecarga.resolver('dados antigos'));
+      expect(result.current.estado.situacao).toBe('erro');
+
+      // E o polling não volta.
+      await act(async () => vi.advanceTimersByTimeAsync(5000));
+      expect(carregar).toHaveBeenCalledTimes(3);
+    },
+  );
+
+  it('só a resposta válida da recarga libera o próximo ciclo de polling', async () => {
+    vi.useFakeTimers();
+    const inicial = controlada<string>();
+    const recarga = controlada<string>();
+    const poll = controlada<string>();
+    const fila = [inicial, recarga, poll];
+    const carregar = vi.fn(() => fila.shift()!.promessa);
+    const { result } = renderHook(() =>
+      useCarregar(carregar, { atualizarEnquanto: { intervaloMs: 1000, quando: () => true } }),
+    );
+    await act(async () => inicial.resolver('dados'));
+    act(() => result.current.recarregar());
+    await act(async () => vi.advanceTimersByTimeAsync(2000));
+    expect(carregar).toHaveBeenCalledTimes(2);
+    await act(async () => recarga.resolver('recarregados'));
+    await act(async () => vi.advanceTimersByTimeAsync(1000));
+    expect(carregar).toHaveBeenCalledTimes(3);
+    await act(async () => poll.resolver('atualizados'));
+    expect(result.current.estado).toEqual({ situacao: 'ok', dados: 'atualizados' });
+  });
 });
