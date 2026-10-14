@@ -1,4 +1,6 @@
-/** Estado sempre com texto (não depende só de cor). */
+const CLASSE_DO_TOM = { neutro: 'neutral', ok: 'ok', aviso: 'warn', erro: 'danger' } as const;
+
+/** Estado sempre com ponto e texto (não depende só de cor). */
 export function SeloStatus({
   rotulo,
   tom,
@@ -6,7 +8,7 @@ export function SeloStatus({
   rotulo: string;
   tom: 'neutro' | 'ok' | 'aviso' | 'erro';
 }) {
-  return <span className={`selo selo-${tom}`}>{rotulo}</span>;
+  return <span className={`badge-soft ${CLASSE_DO_TOM[tom]}`}>{rotulo}</span>;
 }
 
 export function tomDoStatusPedido(status: string): 'neutro' | 'ok' | 'aviso' | 'erro' {

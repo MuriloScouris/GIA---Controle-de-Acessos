@@ -9,15 +9,9 @@ import { NOME_PRODUTO, TITULO_APLICACAO } from '../titulo.js';
 function LogoGia() {
   return (
     <svg viewBox="0 0 40 40" aria-hidden="true" focusable="false">
-      <path d="M8 7.5h15.2l8.8 8.8v16.2H8z" fill="#fff" />
-      <path d="M23.2 7.5v8.8H32" fill="none" stroke="#7c3aed" strokeWidth="1.5" />
-      <path
-        d="M13.5 21h13M13.5 26h9"
-        fill="none"
-        stroke="#7c3aed"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-      />
+      <path className="logo-folha" d="M8 7.5h15.2l8.8 8.8v16.2H8z" />
+      <path className="logo-dobra" d="M23.2 7.5v8.8H32" />
+      <path className="logo-linhas" d="M13.5 21h13M13.5 26h9" />
     </svg>
   );
 }
@@ -46,7 +40,7 @@ function IconeEscudo() {
 
 function IconeMicrosoft() {
   return (
-    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+    <svg className="icone-ms" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
       <path fill="#fff" opacity="0.9" d="M2 2h9.4v9.4H2z" />
       <path fill="#fff" opacity="0.7" d="M12.6 2H22v9.4h-9.4z" />
       <path fill="#fff" opacity="0.7" d="M2 12.6h9.4V22H2z" />
@@ -117,6 +111,10 @@ export function PaginaLogin() {
       </section>
 
       <main id="conteudo" className="login-painel" tabIndex={-1}>
+        <div className="login-logo-mobile" aria-hidden="true">
+          <LogoGia />
+          <span>{NOME_PRODUTO}</span>
+        </div>
         <div className="login-cartao">
           <h1>Bem-vindo ao {NOME_PRODUTO}</h1>
           <p className="login-texto-suave">

@@ -104,9 +104,14 @@ function PainelOnboarding() {
       {importacao && <ResumoImportacao resultado={importacao} />}
 
       {estado.situacao === 'carregando' && (
-        <p role="status" className="estado">
-          Carregando pedidos…
-        </p>
+        <div className="estado">
+          <p role="status">Carregando pedidos…</p>
+          <div className="esqueleto" aria-hidden="true">
+            <span className="esqueleto-linha" />
+            <span className="esqueleto-linha" />
+            <span className="esqueleto-linha curta" />
+          </div>
+        </div>
       )}
       {estado.situacao === 'erro' && <ErroCarga erro={estado.erro} onTentarDeNovo={recarregar} />}
       {estado.situacao === 'ok' && (
@@ -164,36 +169,38 @@ function PainelOnboarding() {
                 <p className="estado">Nenhum pedido corresponde aos filtros.</p>
               ) : (
                 <>
-                  <table className="tabela">
-                    <caption className="so-leitor">Pedidos de onboarding</caption>
-                    <thead>
-                      <tr>
-                        <th scope="col">Chamado</th>
-                        <th scope="col">Colaborador</th>
-                        <th scope="col">Vínculo</th>
-                        <th scope="col">Status</th>
-                        <th scope="col">Atualizado em</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {visiveis.map((pedido) => (
-                        <tr key={pedido.id}>
-                          <td>
-                            <Link to={`/pedidos/${pedido.id}`}>{pedido.idExterno}</Link>
-                          </td>
-                          <td>{pedido.nomeColaborador}</td>
-                          <td>{ROTULO_VINCULO[pedido.tipoVinculo]}</td>
-                          <td>
-                            <SeloStatus
-                              rotulo={ROTULO_STATUS_PEDIDO[pedido.status]}
-                              tom={tomDoStatusPedido(pedido.status)}
-                            />
-                          </td>
-                          <td>{formatarInstante(pedido.atualizadoEm)}</td>
+                  <div className="tabela-rolagem">
+                    <table className="tabela">
+                      <caption className="so-leitor">Pedidos de onboarding</caption>
+                      <thead>
+                        <tr>
+                          <th scope="col">Chamado</th>
+                          <th scope="col">Colaborador</th>
+                          <th scope="col">Vínculo</th>
+                          <th scope="col">Status</th>
+                          <th scope="col">Atualizado em</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody>
+                        {visiveis.map((pedido) => (
+                          <tr key={pedido.id}>
+                            <td>
+                              <Link to={`/pedidos/${pedido.id}`}>{pedido.idExterno}</Link>
+                            </td>
+                            <td>{pedido.nomeColaborador}</td>
+                            <td>{ROTULO_VINCULO[pedido.tipoVinculo]}</td>
+                            <td>
+                              <SeloStatus
+                                rotulo={ROTULO_STATUS_PEDIDO[pedido.status]}
+                                tom={tomDoStatusPedido(pedido.status)}
+                              />
+                            </td>
+                            <td>{formatarInstante(pedido.atualizadoEm)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                   <nav className="paginacao" aria-label="Paginação">
                     <Button
                       className="botao-secundario"
@@ -226,20 +233,20 @@ function PainelOnboarding() {
 export function PainelPedidos() {
   return (
     <>
-      <h1>Painel de chamados</h1>
-      <Tabs>
-        <TabList aria-label="Tipo de chamado" className="abas">
-          <Tab id="onboarding" className="aba">
+      <h1 className="titulo-pagina">Painel de chamados</h1>
+      <Tabs className="pasta">
+        <TabList aria-label="Tipo de chamado" className="config-tabs">
+          <Tab id="onboarding" className="config-tab tab-lilas">
             Onboarding
           </Tab>
-          <Tab id="offboarding" className="aba">
+          <Tab id="offboarding" className="config-tab tab-cinza">
             Offboarding
           </Tab>
         </TabList>
-        <TabPanel id="onboarding">
+        <TabPanel id="onboarding" className="pasta-corpo corpo-pasta">
           <PainelOnboarding />
         </TabPanel>
-        <TabPanel id="offboarding">
+        <TabPanel id="offboarding" className="pasta-corpo corpo-pasta">
           <p className="estado">
             O offboarding está em standby: fica previsto na estrutura, mas não será implementado
             agora.
