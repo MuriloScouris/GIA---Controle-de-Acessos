@@ -1,17 +1,19 @@
 import { randomUUID } from 'node:crypto';
-import { hostname } from 'node:os';
 import { pathToFileURL } from 'node:url';
-import {
-  carregarConfiguracaoAmbiente,
-  ErroConfiguracao,
-  type ConfiguracaoAmbiente,
-  type VariaveisAmbiente,
-} from '@gia/contratos';
+import type { VariaveisAmbiente } from '@gia/contratos';
 import { criarCatalogoSimulado } from '@gia/conectores';
-import { POLITICA_EXECUCAO_PADRAO } from '@gia/dominio';
 import { criarBanco, criarPersistenciaPostgres, urlDoBanco } from '@gia/persistencia';
 import { executarCiclo } from './ciclo.js';
+import { carregarConfiguracaoWorker } from './configuracao.js';
 import { criarExecutor } from './executor.js';
+
+export {
+  carregarConfiguracaoWorker,
+  LIMITE_POR_SISTEMA_PADRAO,
+  VARIAVEIS_POLITICA,
+  VARIAVEL_LIMITE_POR_SISTEMA,
+} from './configuracao.js';
+export type { ConfiguracaoWorker } from './configuracao.js';
 
 export { executarCiclo } from './ciclo.js';
 export type { OpcoesCiclo } from './ciclo.js';
@@ -28,32 +30,6 @@ export type {
   RelatorioLote,
 } from './executor.js';
 
-export interface ConfiguracaoWorker extends ConfiguracaoAmbiente {
-  readonly workerId: string;
-  readonly intervaloMs: number;
-}
-
-/**
- * Lê e valida a configuração do worker. A escrita externa só aceita
- * `false`: os conectores são os simulados (regras 8 e 9).
- */
-export function carregarConfiguracaoWorker(env: VariaveisAmbiente): ConfiguracaoWorker {
-  const ambiente = carregarConfiguracaoAmbiente(env);
-  const intervalo = env['GIA_WORKER_INTERVALO_MS'];
-  if (intervalo !== undefined && intervalo !== '' && !/^[1-9]\d*$/.test(intervalo)) {
-    throw new ErroConfiguracao(['GIA_WORKER_INTERVALO_MS']);
-  }
-  const workerId = env['GIA_WORKER_ID'];
-  return {
-    ...ambiente,
-    workerId:
-      workerId === undefined || workerId.trim() === ''
-        ? `worker-${hostname()}-${process.pid}`
-        : workerId.trim(),
-    intervaloMs: intervalo === undefined || intervalo === '' ? 1_000 : Number(intervalo),
-  };
-}
-
 /** Valida a configuração e descreve como o worker vai rodar. */
 export function iniciar(env: VariaveisAmbiente = process.env): string {
   const config = carregarConfiguracaoWorker(env);
@@ -68,12 +44,13 @@ export async function executarWorker(
 ): Promise<void> {
   const config = carregarConfiguracaoWorker(env);
   const db = criarBanco({ url: urlDoBanco(env) });
-  const politica = POLITICA_EXECUCAO_PADRAO;
+  const politica = config.politica;
   try {
     const executor = criarExecutor({
       persistencia: criarPersistenciaPostgres(db),
       conectores: criarCatalogoSimulado({ timeoutChamadaMs: politica.timeoutChamadaMs }).conectores,
       politica,
+      limitePorSistema: config.limitePorSistema,
       workerId: config.workerId,
       agora: () => new Date().toISOString(),
       novoId: randomUUID,
@@ -90,6 +67,7 @@ export async function executarWorker(
         registrar(
           `lote: ${r.reservadas} reservadas, ${contar('registrada')} registradas, ` +
             `${contar('descartada')} descartadas, ${contar('naoGravada')} não gravadas, ` +
+            `${contar('naoExecutada')} não executadas (lease perdido), ` +
             `${r.recuperadas.reagendadas} reagendadas e ` +
             `${r.recuperadas.paraReconciliacao} para reconciliação por lease vencido`,
         );
