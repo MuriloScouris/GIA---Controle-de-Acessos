@@ -855,7 +855,10 @@ textarea:focus {
   border-radius: 9px;
 }
 
+/* position: relative contém o texto .so-leitor (absoluto) dentro da área rolável; sem isso ele
+   escapa do overflow e estica o documento no mobile */
 .table-container {
+  position: relative;
   overflow-x: auto;
 }
 

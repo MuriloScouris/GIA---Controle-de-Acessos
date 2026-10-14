@@ -68,12 +68,36 @@ export function eventosDoPedido(detalhe: PedidoDetalhe): Evento[] {
       chips: [['sistema', nomeSistema(item.sistema)]],
     });
   }
-  return eventos.sort((a, b) => b.instante.localeCompare(a.instante));
+  return ordenarDoMaisRecente(eventos);
+}
+
+/** Epoch em ms do instante ou `null` se não for uma data reconhecível. */
+function epochDe(instante: string): number | null {
+  const epoch = Date.parse(instante);
+  return Number.isNaN(epoch) ? null : epoch;
+}
+
+/**
+ * Mais recente primeiro, comparando o instante real (epoch) e não o texto: `…:00Z` e `…:00.500Z`
+ * ou offsets diferentes não ordenam bem como string. Instantes inválidos vão ao final; empates
+ * (e inválidos entre si) mantêm a ordem de inserção, já que `Array.prototype.sort` é estável.
+ */
+function ordenarDoMaisRecente(eventos: Evento[]): Evento[] {
+  return eventos
+    .map((evento) => ({ evento, epoch: epochDe(evento.instante) }))
+    .sort((a, b) => {
+      if (a.epoch === null || b.epoch === null) {
+        return a.epoch === b.epoch ? 0 : a.epoch === null ? 1 : -1;
+      }
+      return b.epoch - a.epoch;
+    })
+    .map(({ evento }) => evento);
 }
 
 function rotuloDoDia(instante: string, agora: Date): string {
-  const data = new Date(instante);
-  if (Number.isNaN(data.getTime())) return instante;
+  const epoch = epochDe(instante);
+  if (epoch === null) return 'Data indisponível';
+  const data = new Date(epoch);
   const mesmoDia = data.toDateString() === agora.toDateString();
   return mesmoDia
     ? `Hoje, ${data.toLocaleDateString('pt-BR', { day: 'numeric', month: 'long' })}`
