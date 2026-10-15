@@ -102,26 +102,12 @@ Permissões **de aplicação** do app registration (com consentimento do adminis
 
 Homologação somente leitura (token + organização, sem ler pessoas): `pnpm --filter @gia/conectores m365:verificar`.
 
-## O que ainda não existe
+## Composicao real e ativacao
 
-- **Escrita real ponta a ponta:** a composi??o continua pendente de integra??o com os gates operacionais.
-- **Entrega da senha inicial:** a senha gerada nunca ? devolvida nem guardada; at? haver decis?o, ? necess?rio reset pelo suporte.
+AD, Microsoft Graph, DocuSign, SoftExpert e Jira sao montados explicitamente pela composicao
+compartilhada com API/worker. O catalogo de desenvolvimento continua simulado. Montar um
+transporte nao libera escrita. Veja [DEV-287](../../docs/integracoes/dev-287-composicao.md)
+para seletores, arquivos de segredo, gates, smoke, limitacoes e bloqueios de producao.
 
-O transporte DocuSign eSignature REST est? implementado em `src/docusign/`, com JWT e configura??o por ambiente. Veja [DOCUSIGN.md](DOCUSIGN.md). O cat?logo padr?o ainda ? simulado.
-
-Os demais transportes reais (Microsoft Graph, SOAP, REST do Jira) dependem de credenciais e de acesso aos ambientes. Ao implement?-los, cada transporte deve:
-
-O transporte REST do Jira Cloud está em `src/jira/`, com configuração opt-in,
-origem por cursor e destino com escrita desligada por padrão. Veja o
-[runbook DEV-285](../../docs/integracoes/jira-dev-285.md), incluindo bloqueios reais
-de ativação e validação produtiva pendente.
-
-Os demais transportes reais (LDAPS, Microsoft Graph, eSignature REST, SOAP) ainda
-dependem de implementação, credenciais do cofre e acesso aos ambientes. Cada transporte deve:
-
-- lançar `ErroFornecedor` com o tipo correto (`timeout`, `respostaPerdida`, `conexaoRecusada`, `limiteDeTaxa`, `recusado`);
-- tratar 2xx com erro interno como `recusado`;
-- escapar entrada humana com `escaparValorFiltroLdap`, `escaparValorDn` e `escaparXml`;
-- nunca devolver nem registrar senha, token ou chave.
-
-A escrita continua desligada por padrão: a liberação por sistema e por operação (regra 8) é decidida pelo domínio antes de qualquer chamada ao conector.
+A entrega/reset da senha inicial do AD e a revogacao SoftExpert ainda exigem as decisoes
+operacionais documentadas nos respectivos runbooks. Producao nao foi homologada.

@@ -134,6 +134,7 @@ describe('gate de escrita no worker (fail-closed)', () => {
         GIA_AMBIENTE: 'teste',
         GIA_ESCRITA_EXTERNA: 'true',
         GIA_ESCRITA_LIBERADA: 'ad:criar',
+        GIA_AD_MODO: 'real',
       }),
     ).toContain('escrita externa LIGADA: ad:criar');
     expect(() => iniciar({ GIA_AMBIENTE: 'producao', GIA_AD_SENHA: 'x' })).toThrow(/GIA_AD_SENHA/);

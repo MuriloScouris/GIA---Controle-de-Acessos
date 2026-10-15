@@ -1,6 +1,7 @@
 import { checkServerIdentity, type PeerCertificate } from 'node:tls';
 import { Attribute, Change, Client, ResultCodeError } from 'ldapts';
 import { ErroFornecedor } from '../erros.js';
+import { exigirPrazo } from '../prazo.js';
 
 /**
  * O pouco de LDAP que o transporte do AD usa. Isolado aqui para que o cliente
@@ -173,6 +174,7 @@ export function criarAbridorLdapts(opcoes: OpcoesConexaoLdap): AbrirSessaoLdap {
   return async () => {
     let ultimaFalha: ErroFornecedor | null = null;
     for (const url of opcoes.urls) {
+      exigirPrazo();
       const cliente = new Client({
         url,
         connectTimeout: opcoes.timeoutConexaoMs,
@@ -181,7 +183,9 @@ export function criarAbridorLdapts(opcoes: OpcoesConexaoLdap): AbrirSessaoLdap {
         strictDN: true,
       });
       try {
-        await cliente.bind(opcoes.bindDn, await opcoes.senha());
+        const senha = await opcoes.senha();
+        exigirPrazo();
+        await cliente.bind(opcoes.bindDn, senha);
         return sessaoDe(cliente);
       } catch (erro) {
         await cliente.unbind().catch(() => undefined);
@@ -197,6 +201,7 @@ export function criarAbridorLdapts(opcoes: OpcoesConexaoLdap): AbrirSessaoLdap {
 function sessaoDe(cliente: Client): SessaoLdap {
   return {
     async buscar(busca) {
+      exigirPrazo();
       const { searchEntries } = await cliente.search(busca.base, {
         scope: busca.escopo,
         filter: busca.filtro,
@@ -216,6 +221,7 @@ function sessaoDe(cliente: Client): SessaoLdap {
       });
     },
     async incluir(dn, atributos) {
+      exigirPrazo();
       await cliente.add(
         dn,
         Object.entries(atributos).map(
@@ -224,6 +230,7 @@ function sessaoDe(cliente: Client): SessaoLdap {
       );
     },
     async alterar(dn, mudancas) {
+      exigirPrazo();
       await cliente.modify(
         dn,
         mudancas.map(
@@ -239,6 +246,7 @@ function sessaoDe(cliente: Client): SessaoLdap {
       );
     },
     async renomear(dn, novoDn) {
+      exigirPrazo();
       await cliente.modifyDN(dn, novoDn);
     },
     async encerrar() {

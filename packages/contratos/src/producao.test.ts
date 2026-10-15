@@ -117,13 +117,15 @@ describe('segredos fora do ambiente (regra 12)', () => {
       const arquivo = join(pasta, 'db');
       await writeFile(arquivo, 'postgres://gia:x@db/gia\n');
       const env = await resolverSegredosDeArquivo({
+        GIA_AMBIENTE: 'producao',
         GIA_DATABASE_URL_ARQUIVO: arquivo,
         OUTRA: '1',
       });
       expect(env['GIA_DATABASE_URL']).toBe('postgres://gia:x@db/gia');
       expect(env['OUTRA']).toBe('1');
       // O valor lido do cofre não conta como segredo passado por valor.
-      expect(exigirSegredosForaDoAmbiente({ ...env, GIA_AMBIENTE: 'producao' })).toEqual([]);
+      expect(exigirSegredosForaDoAmbiente(env)).toEqual([]);
+      expect(() => exigirSegredosForaDoAmbiente({ ...env })).toThrow('GIA_DATABASE_URL');
     });
 
     it('valor e arquivo ao mesmo tempo, arquivo ausente ou vazio são erro', async () => {

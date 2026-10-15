@@ -14,7 +14,11 @@ import {
   type GatesDeEscrita,
   type VariaveisAmbiente,
 } from '@gia/contratos';
-import { criarCatalogoSimulado, criarJiraDoAmbiente, type CatalogoSimulado } from '@gia/conectores';
+import {
+  criarCatalogoSimulado,
+  carregarSelecaoIntegracoes,
+  type CatalogoSimulado,
+} from '@gia/conectores';
 import { configuracaoPadrao, type PoliticaExecucao } from '@gia/dominio';
 import { criarBanco, criarPersistenciaPostgres, urlDoBanco } from '@gia/persistencia';
 import { executarCiclo } from './ciclo.js';
@@ -64,36 +68,11 @@ export type {
  * Conectores do worker com os timeouts da política configurada (ADR-0004):
  * conexão e chamada valem para todos os sistemas, não os defaults do motor.
  */
-export function montarConectores(
-  politica: PoliticaExecucao,
-  env: VariaveisAmbiente = {},
-): CatalogoSimulado {
-  const catalogo = criarCatalogoSimulado({
+export function montarConectores(politica: PoliticaExecucao): CatalogoSimulado {
+  return criarCatalogoSimulado({
     timeoutConexaoMs: politica.timeoutConexaoMs,
     timeoutChamadaMs: politica.timeoutChamadaMs,
   });
-  const jira = criarJiraDoAmbiente(
-    env,
-    {},
-    { timeoutConexaoMs: politica.timeoutConexaoMs, timeoutChamadaMs: politica.timeoutChamadaMs },
-  );
-  if (jira === null) return catalogo;
-  const simulado = catalogo.conectores.jira;
-  const escolher = (modo: string) => (modo === 'real' ? jira.destino : simulado);
-  return {
-    ...catalogo,
-    jiraOrigem: jira.origem,
-    conectores: {
-      ...catalogo.conectores,
-      jira: {
-        testarConexao: () => jira.destino.testarConexao(),
-        validar: (ctx) => escolher(ctx.modo).validar(ctx),
-        conferirExistencia: (ctx) => escolher(ctx.modo).conferirExistencia(ctx),
-        provisionar: (ctx) => escolher(ctx.modo).provisionar(ctx),
-        revogar: (ctx) => escolher(ctx.modo).revogar(ctx),
-      },
-    },
-  };
 }
 
 function descreverEscrita(gates: GatesDeEscrita): string {
@@ -107,6 +86,7 @@ export function iniciar(env: VariaveisAmbiente = process.env): string {
   const config = carregarConfiguracaoWorker(env);
   exigirSegredosForaDoAmbiente(env);
   const gates = carregarGatesDeEscrita(env);
+  carregarSelecaoIntegracoes(env);
   if (portaDeMetricas(env[VARIAVEL_METRICAS_PORTA]) === 'invalida') {
     throw new ErroConfiguracao([VARIAVEL_METRICAS_PORTA]);
   }
@@ -124,7 +104,7 @@ export async function executarWorker(
   const env = await resolverSegredosDeArquivo(envOriginal);
   const config = carregarConfiguracaoWorker(env);
   const gates = carregarGatesDeEscrita(env);
-  const db = criarBanco({ url: urlDoBanco(env) });
+
   const politica = config.politica;
   const log = criarRegistrador({
     servico: 'worker',
@@ -134,7 +114,10 @@ export async function executarWorker(
   }).filho({ workerId: config.workerId });
   const metricas = new RegistroMetricas();
   const obs = criarObservabilidadeWorker(log, metricas);
-  const reais = conectoresReaisDoAmbiente(env, politica);
+  const reais = await conectoresReaisDoAmbiente(env, politica, (evento) =>
+    log.info('integracao_chamada', { ...evento }),
+  );
+  const db = criarBanco({ url: urlDoBanco(env) });
   const arquivoSaude = env[VARIAVEL_ARQUIVO_SAUDE]?.trim() || null;
   const portaMetricas = portaDeMetricas(env[VARIAVEL_METRICAS_PORTA]);
   const servidorMetricas =
@@ -151,7 +134,7 @@ export async function executarWorker(
         configuracao: { ...configuracaoPadrao(), liberacaoEscrita: liberacaoDosGates(gates) },
       }),
       conectores: aplicarGatesDeEscrita(
-        montarConectores(politica, env).conectores,
+        montarConectores(politica).conectores,
         reais,
         gates,
         obs.aoDecidirGate,

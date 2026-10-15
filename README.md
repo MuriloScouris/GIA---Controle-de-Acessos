@@ -147,7 +147,8 @@ READMEs de cada pacote.
 Gates de escrita externa, segredos em arquivo do cofre, saúde e prontidão,
 logs estruturados com correlação, métricas, smoke test pós-deploy e rollback:
 [runbook de produção](docs/operacao/producao.md). Produção ainda depende de
-login real (OIDC) e dos conectores reais registrados no worker.
+login real (OIDC) e de homologacao autorizada dos conectores reais.
+Composicao e habilitacao controlada: [DEV-287](docs/integracoes/dev-287-composicao.md).
 
 ## Validação da aba Onboarding (DEV-286)
 

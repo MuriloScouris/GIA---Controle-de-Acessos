@@ -1,4 +1,8 @@
-import { ErroConfiguracao, type VariaveisAmbiente } from '@gia/contratos';
+import {
+  ErroConfiguracao,
+  exigirSegredosForaDoAmbiente,
+  type VariaveisAmbiente,
+} from '@gia/contratos';
 import { criarDestinoJiraCloud } from './destino.js';
 import { HttpJira, objeto, type OpcoesHttpJira } from './http.js';
 import { criarOrigemJiraCloud, validarOrigem, type OpcoesOrigemJiraCloud } from './origem.js';
@@ -10,6 +14,7 @@ export function criarJiraDoAmbiente(
   transporte: Pick<OpcoesHttpJira, 'fetch' | 'esperar' | 'auditar'> = {},
   limites: Omit<OpcoesConector, 'modo'> = {},
 ) {
+  exigirSegredosForaDoAmbiente(env);
   const modo = env['GIA_JIRA_MODO'] ?? 'simulado';
   if (modo === 'simulado') {
     if (

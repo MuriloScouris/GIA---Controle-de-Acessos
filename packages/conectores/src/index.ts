@@ -3,10 +3,10 @@
  * simuladores de cada fornecedor. Os adaptadores implementam o contrato
  * `Conector` do domínio sobre um cliente de transporte injetado; os
  * simuladores implementam esses clientes em memória, sem rede nem segredos.
- * O AD já tem transporte real (LDAPS, em `transportes/`); Graph, REST e SOAP ainda não.
- * O Jira Cloud também dispõe de transporte REST real, habilitado explicitamente.
+ * Transportes reais sao selecionados explicitamente em composicao.ts.
  */
 export const PACOTE = '@gia/conectores';
+export * from './composicao.js';
 
 export * from './erros.js';
 export * from './escape.js';

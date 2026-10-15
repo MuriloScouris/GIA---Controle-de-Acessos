@@ -15,7 +15,11 @@ const NOME_DE_SEGREDO =
 const URL_COM_SENHA = /^[a-z][a-z0-9+.-]*:\/\/[^:/@\s]+:[^@\s]+@/i;
 
 /** Variáveis que aceitam o valor vindo de arquivo (`<NOME>_ARQUIVO`). */
-export const SEGREDOS_EM_ARQUIVO = ['GIA_DATABASE_URL'] as const;
+export const SEGREDOS_EM_ARQUIVO = ['GIA_DATABASE_URL', 'GIA_JIRA_API_TOKEN'] as const;
+
+// Só o resolvedor pode comprovar a origem. Um caminho declarado pelo processo
+// não legitima um valor inline; cópias perdem a comprovação deliberadamente.
+const origens = new WeakMap<VariaveisAmbiente, ReadonlyMap<string, string>>();
 
 /** Nomes (nunca valores) das variáveis com segredo passado por valor. */
 export function segredosNoAmbiente(env: VariaveisAmbiente): readonly string[] {
@@ -24,7 +28,7 @@ export function segredosNoAmbiente(env: VariaveisAmbiente): readonly string[] {
     if (valor === undefined || valor.trim() === '') continue;
     if (!nome.startsWith('GIA_') || nome.endsWith('_ARQUIVO')) continue;
     // Valor que `resolverSegredosDeArquivo` leu do cofre: não veio do ambiente.
-    if ((env[`${nome}_ARQUIVO`]?.trim() ?? '') !== '') continue;
+    if (origens.get(env)?.get(nome) === valor) continue;
     // Variáveis de teste ficam fora: apontam para serviços efêmeros do CI.
     if (/_TESTE(_|$)/.test(nome)) continue;
     if (NOME_DE_SEGREDO.test(nome) || URL_COM_SENHA.test(valor.trim())) achados.add(nome);
@@ -51,7 +55,9 @@ export function exigirSegredosForaDoAmbiente(env: VariaveisAmbiente): readonly s
 export async function resolverSegredosDeArquivo(
   env: VariaveisAmbiente,
 ): Promise<VariaveisAmbiente> {
+  exigirSegredosForaDoAmbiente(env);
   const resolvido: Record<string, string | undefined> = { ...env };
+  const lidos = new Map<string, string>();
   const erros: string[] = [];
   for (const nome of SEGREDOS_EM_ARQUIVO) {
     const arquivo = env[`${nome}_ARQUIVO`]?.trim();
@@ -64,10 +70,12 @@ export async function resolverSegredosDeArquivo(
       const valor = (await readFile(arquivo, 'utf8')).replace(/\r?\n$/, '');
       if (valor === '' || /[\r\n]/.test(valor)) throw new Error();
       resolvido[nome] = valor;
+      lidos.set(nome, valor);
     } catch {
       erros.push(`${nome}_ARQUIVO`);
     }
   }
   if (erros.length > 0) throw new ErroConfiguracao(erros.sort());
-  return resolvido;
+  origens.set(resolvido, lidos);
+  return Object.freeze(resolvido);
 }

@@ -1,5 +1,9 @@
 import { pathToFileURL } from 'node:url';
-import { criarJiraDoAmbiente } from '@gia/conectores';
+import {
+  criarJiraDoAmbiente,
+  criarIntegracoesDoAmbiente,
+  carregarSelecaoIntegracoes,
+} from '@gia/conectores';
 import {
   ErroConfiguracao,
   resolverSegredosDeArquivo,
@@ -21,10 +25,26 @@ import { prepararAmbienteApi, type AmbienteApi } from './producao.js';
 export function criarAppDoAmbiente(
   env: VariaveisAmbiente = process.env,
   ambiente: AmbienteApi = prepararAmbienteApi(env),
+  integracoes?: Awaited<ReturnType<typeof criarIntegracoesDoAmbiente>>,
 ): FastifyInstance {
+  carregarSelecaoIntegracoes(env);
   const jira = criarJiraDoAmbiente(env);
+  const externo = ambiente.config.ambiente === 'producao' || ambiente.gates.escritaExterna;
+  const indisponivel = async (): Promise<never> => {
+    throw new Error('INTEGRACAO_REAL_INDISPONIVEL');
+  };
+  const fonteJira = integracoes?.jiraOrigem ?? jira?.origem;
   const comum = {
-    ...(jira === null ? {} : { fonteJira: jira.origem }),
+    ...(fonteJira
+      ? { fonteJira }
+      : externo
+        ? { fonteJira: { buscarChamadosOnboarding: indisponivel } }
+        : {}),
+    ...(integracoes?.diretorio
+      ? { diretorio: integracoes.diretorio }
+      : externo
+        ? { diretorio: { buscarUsos: indisponivel } }
+        : {}),
     ambiente: ambiente.config.ambiente,
     gates: ambiente.gates,
     registrador: ambiente.registrador,
@@ -52,7 +72,10 @@ export function criarAppDoAmbiente(
 export async function iniciarApi(env: VariaveisAmbiente = process.env): Promise<FastifyInstance> {
   const resolvido = await resolverSegredosDeArquivo(env);
   const ambiente = prepararAmbienteApi(resolvido);
-  const app = criarAppDoAmbiente(resolvido, ambiente);
+  // Validação de seleção, configurações e arquivos antes de abrir banco/porta.
+  // Clientes de destino pertencem ao worker; construir aqui não executa chamadas.
+  const integracoes = await criarIntegracoesDoAmbiente(resolvido);
+  const app = criarAppDoAmbiente(resolvido, ambiente, integracoes);
   if (ambiente.portaMetricas !== null) {
     const metricas = await servirMetricas(ambiente.metricas, { porta: ambiente.portaMetricas });
     app.addHook('onClose', async () => {

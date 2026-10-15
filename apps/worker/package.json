@@ -15,7 +15,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "start": "node dist/index.js",
-    "saude": "node dist/saude.js"
+    "saude": "node dist/saude.js",
+    "smoke:integracoes": "node dist/smoke.js"
   },
   "dependencies": {
     "@gia/contratos": "workspace:*",

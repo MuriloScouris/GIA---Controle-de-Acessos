@@ -1,6 +1,9 @@
 import { POLITICA_EXECUCAO_PADRAO, type ContextoItem, type ParametrosJira } from '@gia/dominio';
 import { afterEach, expect, it, vi } from 'vitest';
 import { montarConectores } from './index.js';
+import { aplicarGatesDeEscrita } from './gates.js';
+import { carregarGatesDeEscrita } from '@gia/contratos';
+import { conectoresReaisDoAmbiente } from './reais.js';
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -19,6 +22,9 @@ it('worker seleciona Jira real por contexto; operações simuladas continuam sem
     gestor: 'gestor',
   };
   const env = {
+    GIA_AMBIENTE: 'teste',
+    GIA_ESCRITA_EXTERNA: 'true',
+    GIA_ESCRITA_LIBERADA: 'jira:criar',
     GIA_JIRA_MODO: 'real',
     GIA_JIRA_BASE_URL: 'https://tenant.example.invalid',
     GIA_JIRA_EMAIL: 'servico@example.invalid',
@@ -30,7 +36,11 @@ it('worker seleciona Jira real por contexto; operações simuladas continuam sem
       campos,
     }),
   };
-  const { conectores } = montarConectores(POLITICA_EXECUCAO_PADRAO, env);
+  const conectores = aplicarGatesDeEscrita(
+    montarConectores(POLITICA_EXECUCAO_PADRAO).conectores,
+    await conectoresReaisDoAmbiente(env, POLITICA_EXECUCAO_PADRAO),
+    carregarGatesDeEscrita(env),
+  );
   const parametros: ParametrosJira = {
     sistema: 'jira',
     email: 'pessoa@example.invalid',
