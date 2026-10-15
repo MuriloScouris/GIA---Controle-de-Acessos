@@ -17,13 +17,15 @@
     "start": "node dist/index.js",
     "saude": "node dist/saude.js",
     "smoke:integracoes": "node dist/smoke.js",
-    "preflight": "node dist/preflight/cli.js"
+    "preflight": "node dist/preflight/cli.js",
+    "prontidao": "node dist/prontidao/cli.js"
   },
   "dependencies": {
     "@gia/contratos": "workspace:*",
     "@gia/dominio": "workspace:*",
     "@gia/persistencia": "workspace:*",
-    "@gia/conectores": "workspace:*"
+    "@gia/conectores": "workspace:*",
+    "zod": "catalog:"
   },
   "devDependencies": {
     "@types/node": "catalog:",

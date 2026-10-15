@@ -88,6 +88,20 @@ jobs:
           name: preflight-negativo-dev289
           path: ${{ runner.temp }}/preflight-dev289.json
           retention-days: 7
+      - name: Matriz sem evidencia mantem NO_GO
+        run: |
+          set +e
+          pnpm --filter @gia/worker prontidao --revisao "${{ github.event.pull_request.head.sha || github.sha }}" --saida "$RUNNER_TEMP/prontidao-dev292.json"
+          codigo=$?
+          set -e
+          test "$codigo" -eq 1
+          node -e 'const fs = require("node:fs"); const r = JSON.parse(fs.readFileSync(process.argv[1], "utf8")); const itens = r.sistemas.flatMap(s => s.itens); if (r.decisao !== "NO_GO" || r.producaoPronta !== false || r.escritaHabilitada !== false || itens.length !== 62 || itens.some(i => i.pronto || i.estado !== "pendente")) process.exit(1);' "$RUNNER_TEMP/prontidao-dev292.json"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: matriz-no-go-dev292
+          path: ${{ runner.temp }}/prontidao-dev292.json
+          retention-days: 7
       - run: pnpm --filter @gia/tests exec playwright install --with-deps chromium
       - run: pnpm test:e2e
       - uses: actions/upload-artifact@v4
