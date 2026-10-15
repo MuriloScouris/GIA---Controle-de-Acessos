@@ -102,6 +102,10 @@ Permissões **de aplicação** do app registration (com consentimento do adminis
 
 Homologação somente leitura (token + organização, sem ler pessoas): `pnpm --filter @gia/conectores m365:verificar`.
 
+## DocuSign real (eSignature REST)
+
+`src/docusign/` traz o transporte de produção (JWT RS256 com chave em arquivo do cofre). Montagem, regras, configuração e dependências de ativação em [DOCUSIGN.md](DOCUSIGN.md). Homologação somente leitura: `pnpm --filter @gia/conectores docusign:verificar`.
+
 ## Composicao real e ativacao
 
 AD, Microsoft Graph, DocuSign, SoftExpert e Jira sao montados explicitamente pela composicao

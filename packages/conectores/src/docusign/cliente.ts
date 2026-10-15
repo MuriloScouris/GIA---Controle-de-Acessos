@@ -1,5 +1,5 @@
 import type { KeyObject } from 'node:crypto';
-import type { Conector } from '@gia/dominio';
+import type { Conector, ResultadoConexao } from '@gia/dominio';
 import { ErroFornecedor } from '../erros.js';
 import {
   criarConectorDocusign,
@@ -239,9 +239,32 @@ export function criarClienteDocusignReal(
   };
 }
 
+/** Timeouts do motor que o chamador (worker) pode impor; os padrões vêm da configuração. */
+export interface OpcoesConectorDocusignDoAmbiente {
+  readonly timeoutConexaoMs?: number;
+  readonly timeoutChamadaMs?: number;
+}
+
 /** Montagem explícita; não altera o gate de escrita do domínio ou o catálogo do worker. */
-export async function criarConectorDocusignDoAmbiente(env: VariaveisAmbiente): Promise<Conector> {
+export async function criarConectorDocusignDoAmbiente(
+  env: VariaveisAmbiente,
+  opcoes: OpcoesConectorDocusignDoAmbiente = {},
+): Promise<Conector> {
   const config = carregarConfiguracaoDocusign(env);
   const chave = await carregarChaveDocusign(config.chavePrivadaArquivo);
-  return criarConectorDocusign(criarClienteDocusignReal(config, chave), { modo: 'real' });
+  return criarConectorDocusign(criarClienteDocusignReal(config, chave), {
+    modo: 'real',
+    // O testarConexao inclui OAuth e userinfo: precisa do prazo de uma operação, não dos 5 s de conexão.
+    timeoutConexaoMs: opcoes.timeoutConexaoMs ?? config.timeoutMs,
+    ...(opcoes.timeoutChamadaMs === undefined ? {} : { timeoutChamadaMs: opcoes.timeoutChamadaMs }),
+  });
+}
+
+/**
+ * Homologação somente leitura (`pnpm --filter @gia/conectores docusign:verificar`):
+ * valida a configuração, carrega a chave, obtém o token JWT e confere a conta no
+ * userinfo. Não lê nem altera usuários.
+ */
+export async function verificarConexaoDocusign(env: VariaveisAmbiente): Promise<ResultadoConexao> {
+  return (await criarConectorDocusignDoAmbiente(env)).testarConexao();
 }

@@ -16,7 +16,8 @@
     "test": "vitest run",
     "ad:verificar": "node dist/transportes/ad-real.js",
     "softexpert:verificar": "node dist/softexpert/real.js",
-    "m365:verificar": "node dist/m365/real.js"
+    "m365:verificar": "node dist/m365/real.js",
+    "docusign:verificar": "node dist/docusign/verificar.js"
   },
   "dependencies": {
     "@gia/contratos": "workspace:*",

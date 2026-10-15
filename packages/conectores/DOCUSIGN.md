@@ -7,11 +7,11 @@ explícita por `criarConectorDocusignDoAmbiente`. Testes usam fixtures HTTP, ser
 HTTP local com sockets reais e o worker sobre PostgreSQL descartável. Nenhuma
 operação foi executada em uma conta DocuSign real.
 
-O worker em `apps/worker/src/index.ts` ainda monta exclusivamente
-`criarCatalogoSimulado`. O schema global em
-`packages/contratos/src/configuracao.ts` aceita somente escrita externa desligada.
-Integrar o novo conector ao catálogo e liberar escrita por sistema requer trabalho
-de backend/configuração da Sprint 1. Este transporte não altera esses gates.
+O worker monta o conector real quando há configuração `GIA_DOCUSIGN_*` (ver
+[Integração no worker](#integração-no-worker)); sem ela, nada muda. O schema
+global em `packages/contratos/src/configuracao.ts` (na `main`) aceita somente
+escrita externa desligada: liberar escrita por sistema é do PR #16 (DEV-280).
+Este transporte não altera esses gates.
 
 ## Fronteira e autenticação
 
@@ -84,6 +84,21 @@ sistema, operação, pedido, correlação, resultado e referência externa. Resu
 incerto também gera `operacaoEncaminhadaParaReconciliacao`. Os testes em
 `apps/worker/src/docusign-integracao.test.ts` verificam os eventos no PostgreSQL,
 ausência de segredos na evidência e ausência de reenvio ao processar outro lote.
+
+## Integração no worker
+
+Na integração da Sprint 1 (DEV-291), o DocuSign real entra no worker pela
+composição de conectores reais do PR #20 (`criarIntegracoesDoAmbiente` em
+`src/composicao.ts`, registrada em `apps/worker/src/reais.ts`) atrás dos gates de
+escrita do PR #16: operação `real` sem gate liberado ou sem conector real sai
+`semEfeito`, sem chamar nada e nunca o simulador (regra 9). O roteamento próprio
+proposto no PR #19 (`apps/worker/src/docusign.ts`) ficou substituído por essa
+composição. Do PR #19 permanecem:
+
+- `criarConectorDocusignDoAmbiente(env, opcoes)` aceitando os timeouts do motor
+  e usando o prazo do transporte no `testarConexao`;
+- homologação somente leitura: `pnpm --filter @gia/conectores docusign:verificar`
+  (configuração, chave, token JWT e userinfo; não lê nem altera usuários).
 
 ## Dependências para aceite em produção
 
