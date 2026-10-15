@@ -87,6 +87,8 @@ pnpm check        # format:check + lint + typecheck + test + build
 # 1. Banco
 docker run -d --name gia-pg -e POSTGRES_HOST_AUTH_METHOD=trust -p 55432:5432 postgres:17-alpine
 export GIA_DATABASE_URL=postgres://postgres@localhost:55432/postgres
+# Login simulado só com o ambiente declarado; sem ele, a API sobe sem login.
+export GIA_AMBIENTE=desenvolvimento
 
 # 2. Build e migrações
 pnpm build
