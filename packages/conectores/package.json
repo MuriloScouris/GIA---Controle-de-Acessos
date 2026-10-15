@@ -13,7 +13,8 @@
     "build": "tsc -p tsconfig.build.json",
     "lint": "eslint .",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "softexpert:verificar": "node dist/softexpert/real.js"
   },
   "dependencies": {
     "@gia/contratos": "workspace:*",

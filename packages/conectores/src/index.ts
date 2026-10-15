@@ -25,3 +25,7 @@ export * from './simuladores/m365.js';
 export * from './simuladores/docusign.js';
 export * from './simuladores/softexpert.js';
 export * from './simuladores/jira.js';
+
+export * from './softexpert/configuracao.js';
+export * from './softexpert/cliente.js';
+export * from './softexpert/real.js';
