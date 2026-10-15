@@ -13,11 +13,14 @@
     "build": "tsc -p tsconfig.build.json",
     "lint": "eslint .",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "ad:verificar": "node dist/transportes/ad-real.js"
   },
   "dependencies": {
     "@gia/contratos": "workspace:*",
-    "@gia/dominio": "workspace:*"
+    "@gia/dominio": "workspace:*",
+    "ldapts": "catalog:",
+    "zod": "catalog:"
   },
   "devDependencies": {
     "@types/node": "catalog:",
