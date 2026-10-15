@@ -422,6 +422,6 @@
     "packages/persistencia/src/migrar.test.ts": "1d2eeefc27545ebb6eb40e433db1a0919e4dad1d",
     "packages/persistencia/src/migrar.ts": "cba41df4939220124c1918193bff2440cf37c7a3",
     "scripts/verificar-integracao-sprint1.mjs": "30efb0a4f615dc9c2b79385dbcb9133b3497979c",
-    "tests/e2e/verificador-integracao.test.ts": "8ff824c1134a60061bc3f12ad570fea4148fcb4c"
+    "tests/e2e/verificador-integracao.test.ts": "d8d9736ee72947a3fbfe7f7752334a2daff19c34"
   }
 }
