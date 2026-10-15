@@ -15,6 +15,8 @@ export * from './catalogo.js';
 export * from './adaptadores/ad.js';
 export * from './adaptadores/m365.js';
 export * from './adaptadores/docusign.js';
+export * from './docusign/configuracao.js';
+export * from './docusign/cliente.js';
 export * from './adaptadores/softexpert.js';
 export * from './adaptadores/jira-destino.js';
 export * from './adaptadores/jira-origem.js';

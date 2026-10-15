@@ -50,10 +50,13 @@ GIA_AD_TESTE_URL=ldaps://127.0.0.1:6360 GIA_AD_TESTE_BIND_DN="CN=Administrator,C
 
 ## O que ainda não existe
 
-- **Escrita real ponta a ponta:** a API grava operações `simulado`, `GIA_ESCRITA_EXTERNA` só aceita `false` e o worker usa o catálogo simulado. Ligar o AD real no worker depende de liberar o modo real e persistir a liberação por sistema (regra 8).
-- **Entrega da senha inicial:** a senha gerada nunca é devolvida nem guardada; o documento de acessos não traz senhas. Até haver decisão, a conta só é usável depois de um reset pelo suporte.
+- **Escrita real ponta a ponta:** a composi??o continua pendente de integra??o com os gates operacionais.
+- **Entrega da senha inicial:** a senha gerada nunca ? devolvida nem guardada; at? haver decis?o, ? necess?rio reset pelo suporte.
 
-Os transportes reais de Graph, eSignature REST, SOAP e REST do Jira **não** fazem parte deste pacote: dependem de credenciais do cofre e de acesso aos ambientes. Ao implementá-los, cada transporte deve:
+O transporte DocuSign eSignature REST est? implementado em `src/docusign/`, com JWT e configura??o por ambiente. Veja [DOCUSIGN.md](DOCUSIGN.md). O cat?logo padr?o ainda ? simulado.
+
+Os demais transportes reais (Microsoft Graph, SOAP, REST do Jira) dependem de credenciais e de acesso aos ambientes. Ao implement?-los, cada transporte deve:
+
 
 - lançar `ErroFornecedor` com o tipo correto (`timeout`, `respostaPerdida`, `conexaoRecusada`, `limiteDeTaxa`, `recusado`);
 - tratar 2xx com erro interno como `recusado`;
