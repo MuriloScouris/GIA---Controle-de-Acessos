@@ -14,6 +14,7 @@ import { criarBanco, criarPersistenciaPostgres } from '@gia/persistencia';
 import type { FastifyInstance } from 'fastify';
 import { criarApp } from './app.js';
 import { prepararAmbienteApi, type AmbienteApi } from './producao.js';
+import { autenticacaoDoAmbiente } from './sessao/autenticacao-ambiente.js';
 
 /**
  * Monta a API a partir do ambiente. Com `GIA_DATABASE_URL`, a persistência é
@@ -50,6 +51,8 @@ export function criarAppDoAmbiente(
     registrador: ambiente.registrador,
     metricas: ambiente.metricas,
     versao: ambiente.versao,
+    // DEV-288: login OIDC em produção; sessão simulada só em desenvolvimento ou com opt-in em teste.
+    autenticacao: autenticacaoDoAmbiente(env, ambiente.config.ambiente),
   };
   if (ambiente.urlBanco === null) return criarApp(comum);
   const db = criarBanco({ url: ambiente.urlBanco });

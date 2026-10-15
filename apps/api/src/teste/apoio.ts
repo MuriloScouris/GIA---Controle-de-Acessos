@@ -37,6 +37,8 @@ export function montarApi(
     persistencia,
     fonteJira: jira.fonte,
     relogio: { agora: () => agora },
+    // Testes automatizados entram por sessão simulada, com opt-in explícito.
+    autenticacao: { modo: 'simulada' },
     ...opcoes,
   });
 

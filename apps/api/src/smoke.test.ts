@@ -64,7 +64,8 @@ describe('smoke test pós-deploy', () => {
   });
 
   it('em produção exige que o login simulado não exista', async () => {
-    const naoProducao = await subir({ ambiente: 'teste' });
+    // DEV-288: fora de produção a sessão simulada só existe com opt-in explícito.
+    const naoProducao = await subir({ ambiente: 'teste', autenticacao: { modo: 'simulada' } });
     const login = (await executarSmoke({ url: naoProducao.url, producao: true })).find(
       (v) => v.nome === 'login_simulado_ausente',
     );

@@ -90,7 +90,8 @@ it('entrypoint monta a origem do ambiente, sem fallback simulado quando a config
     .fn<typeof fetch>()
     .mockResolvedValue(Response.json({ issues: [], isLast: true }));
   vi.stubGlobal('fetch', fetchFake);
-  const app = criarAppDoAmbiente({ ...env, GIA_AMBIENTE: 'teste' });
+  // DEV-288: em `teste`, a sessão simulada exige opt-in explícito.
+  const app = criarAppDoAmbiente({ ...env, GIA_AMBIENTE: 'teste', GIA_AUTH_SIMULADA: 'true' });
   try {
     const login = await app.inject({
       method: 'POST',

@@ -22,7 +22,9 @@ import type {
 import { REGRAS_PROPOSTA_FICTICIAS, type RegrasProposta } from './aplicacao/regras-proposta.js';
 import { registrarObservabilidade, type VerificacoesProntidao } from './http/observabilidade.js';
 import { enviarFalha } from './http/protocolo.js';
+import { registrarRotasOidc, type EventoLogin } from './http/rotas-oidc.js';
 import { registrarRotas, registrarRotasDeSessaoSimulada } from './http/rotas.js';
+import type { ClienteOidc } from './sessao/oidc.js';
 import { criarPersistenciaEmMemoria } from './persistencia/memoria.js';
 import { criarSessoesSimuladas, type SessoesSimuladas } from './sessao/sessoes-simuladas.js';
 import { criarDiretorioSimulado } from './simuladores/diretorio-simulado.js';
@@ -45,6 +47,26 @@ export interface OpcoesApp {
   readonly versao?: string;
   /** Verificações extras de prontidão (ex.: o banco). A persistência sempre é verificada. */
   readonly verificacoes?: VerificacoesProntidao;
+  /**
+   * Como as pessoas entram. Padrão: sessão simulada só em `desenvolvimento`;
+   * nos demais ambientes, nenhum login até ser configurado. Produção recusa a
+   * sessão simulada.
+   */
+  readonly autenticacao?: Autenticacao;
+}
+
+export type Autenticacao =
+  | { readonly modo: 'simulada' }
+  | {
+      readonly modo: 'oidc';
+      readonly cliente: ClienteOidc;
+      readonly auditarLogin?: (evento: EventoLogin) => void;
+    }
+  | { readonly modo: 'indisponivel' };
+
+/** Resposta de `GET /sessao/modo`: qual login a interface deve oferecer. */
+export interface ModoSessaoResposta {
+  readonly modo: Autenticacao['modo'];
 }
 
 const relogioDoSistema: Relogio = { agora: () => new Date().toISOString() };
@@ -117,7 +139,22 @@ export function criarApp(opcoes: OpcoesApp = {}): FastifyInstance {
     },
   });
   app.get('/saude', async (): Promise<SaudeResposta> => ({ status: 'ok' }));
-  if (ambiente !== 'producao') registrarRotasDeSessaoSimulada(app, deps);
+  const autenticacao: Autenticacao =
+    opcoes.autenticacao ??
+    (ambiente === 'desenvolvimento' ? { modo: 'simulada' } : { modo: 'indisponivel' });
+  if (autenticacao.modo === 'simulada') {
+    // Defesa em profundidade: a configuração já recusa, e o app também.
+    if (ambiente === 'producao') throw new Error('Sessão simulada não é permitida em produção.');
+    registrarRotasDeSessaoSimulada(app, deps);
+  }
+  if (autenticacao.modo === 'oidc') {
+    registrarRotasOidc(app, {
+      ...deps,
+      oidc: autenticacao.cliente,
+      auditarLogin: autenticacao.auditarLogin ?? (() => undefined),
+    });
+  }
+  app.get('/sessao/modo', async (): Promise<ModoSessaoResposta> => ({ modo: autenticacao.modo }));
   registrarRotas(app, deps);
   return app;
 }
