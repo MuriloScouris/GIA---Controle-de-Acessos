@@ -5,7 +5,12 @@ import {
 } from '@gia/contratos';
 import { criarDestinoJiraCloud } from './destino.js';
 import { HttpJira, objeto, type OpcoesHttpJira } from './http.js';
-import { criarOrigemJiraCloud, validarOrigem, type OpcoesOrigemJiraCloud } from './origem.js';
+import {
+  criarOrigemJiraCloud,
+  amostrarOrigemJiraCloud,
+  validarOrigem,
+  type OpcoesOrigemJiraCloud,
+} from './origem.js';
 import type { OpcoesConector } from '../motor.js';
 
 /** Opt-in por variável; configuração parcial/errada nunca faz fallback silencioso. */
@@ -49,6 +54,7 @@ export function criarJiraDoAmbiente(
   }
   return {
     origem: criarOrigemJiraCloud(http, origem),
+    amostrar: () => amostrarOrigemJiraCloud(http, origem),
     destino: criarDestinoJiraCloud(http, env['GIA_JIRA_ESCRITA_HABILITADA'] === 'true', limites),
   };
 }

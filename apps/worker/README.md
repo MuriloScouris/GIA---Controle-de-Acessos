@@ -66,6 +66,13 @@ O log traz só contagens, nunca dados pessoais ou parâmetros.
 
 ## Testes
 
+Preflight de produção: `pnpm --filter @gia/worker preflight --saida <arquivo-novo.json>`.
+`--offline` confere configuração/cofre sem rede. O comando faz somente leituras,
+recusa escrita habilitada e gera evidência sanitizada. Saída 1 indica bloqueio
+técnico; 2 indica leituras aprovadas com homologação administrativa pendente.
+Nenhum desses códigos autoriza escrita. Configuração, códigos, checklist de
+ensaio autorizado e rollback: [DEV-289](../../docs/operacao/dev-289-preflight.md).
+
 `pnpm test` com `GIA_DATABASE_URL_TESTE` (PostgreSQL real; ver
 `packages/persistencia/README.md`). Cobrem execução, dependência AD → M365,
 falha transitória com backoff e retomada da etapa, falha definitiva,

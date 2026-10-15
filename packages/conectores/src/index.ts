@@ -7,6 +7,7 @@
  */
 export const PACOTE = '@gia/conectores';
 export * from './composicao.js';
+export * from './leitura-preflight.js';
 
 export * from './erros.js';
 export * from './escape.js';

@@ -15,16 +15,21 @@ export function exigirPrazo(): number {
 }
 
 /** Nunca inicia outro HTTP depois de o motor desistir; cancela a chamada em voo. */
-export const fetchComPrazo: typeof fetch = async (url, init) => {
-  const restante = exigirPrazo();
-  const signal = Number.isFinite(restante)
-    ? AbortSignal.timeout(Math.max(1, Math.ceil(restante)))
-    : undefined;
-  const sinais = [init?.signal, signal].filter((s): s is AbortSignal => s != null);
-  const resposta = await globalThis.fetch(url, {
-    ...init,
-    ...(sinais.length ? { signal: AbortSignal.any(sinais) } : {}),
-  });
-  exigirPrazo();
-  return resposta;
-};
+export function criarFetchComPrazo(enviar: typeof fetch): typeof fetch {
+  return async (url, init) => {
+    const restante = exigirPrazo();
+    const signal = Number.isFinite(restante)
+      ? AbortSignal.timeout(Math.max(1, Math.ceil(restante)))
+      : undefined;
+    const sinais = [init?.signal, signal].filter((s): s is AbortSignal => s != null);
+    const resposta = await enviar(url, {
+      ...init,
+      ...(sinais.length ? { signal: AbortSignal.any(sinais) } : {}),
+    });
+    exigirPrazo();
+    return resposta;
+  };
+}
+
+export const fetchComPrazo: typeof fetch = (...args) =>
+  criarFetchComPrazo(globalThis.fetch)(...args);

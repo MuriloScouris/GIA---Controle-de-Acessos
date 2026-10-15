@@ -48,6 +48,7 @@ jobs:
           senha="Gia-$(openssl rand -hex 12)-9a"
           echo "::add-mask::$senha"
           printf %s "$senha" > "$pasta/senha"
+          chmod 600 "$pasta/senha"
           docker run -d --name gia-ad-teste --hostname dc1 -p 127.0.0.1:6360:636 \
             -e REALM=GIA.TESTE.LOCAL -e DOMAIN=GIATESTE -e ADMINPASS="$senha" \
             smblds/smblds@sha256:2fa04e4a744c80057540ca2834a3550cbfa7c456821caf3f60cf5898c9051d23
@@ -73,6 +74,20 @@ jobs:
       - run: pnpm test
       - run: pnpm build
       - run: pnpm --filter @gia/worker smoke:integracoes --configuracao
+      - name: Preflight sem credenciais falha fechado e gera evidencia sanitizada
+        run: |
+          set +e
+          pnpm --filter @gia/worker preflight --offline --saida "$RUNNER_TEMP/preflight-dev289.json"
+          codigo=$?
+          set -e
+          test "$codigo" -eq 1
+          node -e 'const fs = require("node:fs"); const r = JSON.parse(fs.readFileSync(process.argv[1], "utf8")); if (r.codigoSaida !== 1 || r.escritaHabilitada !== false || r.producaoPronta !== false || r.leiturasValidadas !== false || r.sistemas.length !== 5) process.exit(1);' "$RUNNER_TEMP/preflight-dev289.json"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: preflight-negativo-dev289
+          path: ${{ runner.temp }}/preflight-dev289.json
+          retention-days: 7
       - run: pnpm --filter @gia/tests exec playwright install --with-deps chromium
       - run: pnpm test:e2e
       - uses: actions/upload-artifact@v4

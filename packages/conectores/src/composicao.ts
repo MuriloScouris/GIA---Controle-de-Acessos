@@ -21,7 +21,7 @@ import { carregarChaveDocusign, carregarConfiguracaoDocusign } from './docusign/
 import { criarJiraDoAmbiente } from './jira/ambiente.js';
 import { ClienteGraphHttp } from './m365/cliente.js';
 import { carregarConfiguracaoM365, lerSegredoM365 } from './m365/configuracao.js';
-import { dentroDoPrazo, fetchComPrazo } from './prazo.js';
+import { dentroDoPrazo, fetchComPrazo, criarFetchComPrazo } from './prazo.js';
 import { carregarConfiguracaoSoftexpert } from './softexpert/configuracao.js';
 import { criarConectorSoftexpertReal } from './softexpert/real.js';
 import { criarClienteAdLdap } from './transportes/ad-real.js';
@@ -76,7 +76,9 @@ export async function criarIntegracoesDoAmbiente(
   env: VariaveisAmbiente,
   politica: PoliticaExecucao = POLITICA_EXECUCAO_PADRAO,
   aoOperar: (evento: EventoIntegracao) => void = () => undefined,
+  transporte: { readonly fetch?: typeof fetch } = {},
 ) {
+  const enviar = transporte.fetch ? criarFetchComPrazo(transporte.fetch) : fetchComPrazo;
   const selecionados = carregarSelecaoIntegracoes(env);
   if (selecionados.length && politica.timeoutChamadaMs < 200)
     throw new ErroConfiguracao(['GIA_EXECUCAO_TIMEOUT_CHAMADA_MS']);
@@ -112,7 +114,7 @@ export async function criarIntegracoesDoAmbiente(
       GIA_M365_TIMEOUT_MS: limitar('GIA_M365_TIMEOUT_MS', 20000),
     });
     await lerSegredoM365(config.arquivoSegredo);
-    graph = new ClienteGraphHttp(config, { fetch: fetchComPrazo });
+    graph = new ClienteGraphHttp(config, { fetch: enviar });
     reais.m365 = criarConectorM365(graph, {
       modo: 'real',
       ...limites,
@@ -125,7 +127,7 @@ export async function criarIntegracoesDoAmbiente(
     });
     const chave = await carregarChaveDocusign(config.chavePrivadaArquivo);
     reais.docusign = criarConectorDocusign(
-      criarClienteDocusignReal(config, chave, { fetch: fetchComPrazo }),
+      criarClienteDocusignReal(config, chave, { fetch: enviar }),
       { modo: 'real', ...limites },
     );
   }
@@ -141,10 +143,10 @@ export async function criarIntegracoesDoAmbiente(
         ? 'GIA_SOFTEXPERT_TOKEN_ARQUIVO'
         : 'GIA_SOFTEXPERT_SENHA_SERVICO_ARQUIVO',
     );
-    reais.softexpert = criarConectorSoftexpertReal(config, { ...limites, fetch: fetchComPrazo });
+    reais.softexpert = criarConectorSoftexpertReal(config, { ...limites, fetch: enviar });
   }
   const jira = selecionados.includes('jira')
-    ? criarJiraDoAmbiente(env, { fetch: fetchComPrazo }, limites)
+    ? criarJiraDoAmbiente(env, { fetch: enviar }, limites)
     : null;
   if (jira) reais.jira = jira.destino;
   // IDs locais ligam os metadados técnicos ao evento transacional, sem parâmetros pessoais.
@@ -204,5 +206,8 @@ export async function criarIntegracoesDoAmbiente(
           ),
       }
     : undefined;
-  return { reais: Object.freeze(reais), jiraOrigem, diretorio };
+  const amostraJira = jira
+    ? () => dentroDoPrazo(politica.timeoutChamadaMs - 100, jira.amostrar)
+    : undefined;
+  return { reais: Object.freeze(reais), jiraOrigem, diretorio, amostraJira };
 }

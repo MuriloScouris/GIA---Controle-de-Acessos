@@ -143,6 +143,28 @@ function mapearChamado(
   return { key: typeof issue.key === 'string' ? issue.key.trim() : null, fields };
 }
 
+/** Preflight: no máximo um chamado de cada vínculo, sem percorrer o histórico. */
+export async function amostrarOrigemJiraCloud(
+  http: HttpJira,
+  opcoes: OpcoesOrigemJiraCloud,
+): Promise<readonly unknown[]> {
+  validarOrigem(opcoes);
+  const amostra: unknown[] = [];
+  const literal = (v: string) => `"${v.replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"`;
+  for (const tipo of [opcoes.tipos.celetista, opcoes.tipos.terceiro]) {
+    const resposta = objeto(
+      await http.chamar('amostrarCampos', 'search/jql', {
+        jql: `project = ${literal(opcoes.projeto)} AND "Request Type" = ${literal(tipo)} ORDER BY created DESC, key DESC`,
+        fields: [...new Set(Object.values(opcoes.campos).map((c) => c.split('.')[0]))].join(','),
+        maxResults: '1',
+      }),
+    );
+    if (!Array.isArray(resposta.issues) || resposta.issues.length > 1) throw invalida();
+    amostra.push(...resposta.issues.map((i) => mapearChamado(i, opcoes)));
+  }
+  return amostra;
+}
+
 /** ADF, select e single-user picker; lista ambígua é recusada, nunca escolhe uma pessoa. */
 function extrair(valor: unknown, profundidade: number): unknown {
   if (profundidade > 15) return undefined;
