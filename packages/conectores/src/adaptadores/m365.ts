@@ -16,15 +16,26 @@ export interface UsuarioEntra {
  */
 export interface ClienteGraph {
   testar(): Promise<void>;
-  buscarUsuario(upn: string): Promise<UsuarioEntra | null>;
+  /**
+   * Procura pelo UPN e, se não achar, pelo e-mail: o UPN do AD só sobrevive à
+   * sincronização quando o sufixo é domínio verificado no tenant.
+   */
+  buscarUsuario(upn: string, email?: string): Promise<UsuarioEntra | null>;
   planoExiste(plano: string): Promise<boolean>;
+  /** Assentos livres do plano; `null` quando o transporte não informa. */
+  assentosLivres?(plano: string): Promise<number | null>;
   grupoExiste(grupo: string): Promise<boolean>;
-  definirPaisDeUso(upn: string, pais: string): Promise<void>;
+  /** As escritas recebem o objectId do Entra ID (ou o UPN): o Graph aceita os dois. */
+  definirPaisDeUso(idOuUpn: string, pais: string): Promise<void>;
   /** Atribui só as licenças informadas (as já atribuídas não são repetidas pelo adaptador). */
-  atribuirLicencas(upn: string, planos: readonly string[]): Promise<void>;
-  adicionarAoGrupo(upn: string, grupo: string): Promise<void>;
-  removerLicencas(upn: string, planos: readonly string[]): Promise<void>;
+  atribuirLicencas(idOuUpn: string, planos: readonly string[]): Promise<void>;
+  adicionarAoGrupo(idOuUpn: string, grupo: string): Promise<void>;
+  /** Remove só os planos informados que a conta tiver; nenhuma outra licença. */
+  removerLicencas(idOuUpn: string, planos: readonly string[]): Promise<void>;
 }
+
+/** Abaixo disto a validação avisa que os assentos do plano estão acabando. */
+export const LIMITE_AVISO_ASSENTOS = 3;
 
 export function criarFornecedorM365(cliente: ClienteGraph): Fornecedor<'m365'> {
   return {
@@ -34,7 +45,7 @@ export function criarFornecedorM365(cliente: ClienteGraph): Fornecedor<'m365'> {
     async validar(p) {
       const impedimentos: Apontamento[] = [];
       const avisos: Apontamento[] = [];
-      if ((await cliente.buscarUsuario(p.upn)) === null) {
+      if ((await cliente.buscarUsuario(p.upn, p.email)) === null) {
         avisos.push({
           codigo: 'IDENTIDADE_NAO_SINCRONIZADA',
           mensagem:
@@ -46,6 +57,19 @@ export function criarFornecedorM365(cliente: ClienteGraph): Fornecedor<'m365'> {
           impedimentos.push({
             codigo: 'PLANO_INEXISTENTE',
             mensagem: `O plano de licença "${plano}" não existe no tenant.`,
+          });
+          continue;
+        }
+        const livres = (await cliente.assentosLivres?.(plano)) ?? null;
+        if (livres !== null && livres <= 0) {
+          impedimentos.push({
+            codigo: 'SEM_ASSENTO',
+            mensagem: `Não há assento livre do plano "${plano}" no tenant.`,
+          });
+        } else if (livres !== null && livres <= LIMITE_AVISO_ASSENTOS) {
+          avisos.push({
+            codigo: 'POUCOS_ASSENTOS',
+            mensagem: `Restam ${livres} assento(s) do plano "${plano}" no tenant.`,
           });
         }
       }
@@ -59,7 +83,7 @@ export function criarFornecedorM365(cliente: ClienteGraph): Fornecedor<'m365'> {
     },
 
     async consultar(p) {
-      const usuario = await cliente.buscarUsuario(p.upn);
+      const usuario = await cliente.buscarUsuario(p.upn, p.email);
       if (usuario === null) {
         return {
           contaExiste: false,
@@ -97,44 +121,54 @@ export function criarFornecedorM365(cliente: ClienteGraph): Fornecedor<'m365'> {
     },
 
     passos(acao, p) {
+      // A conta é resolvida a cada passo (retomada) e as escritas vão pelo objectId:
+      // o UPN do AD pode ter virado `onmicrosoft.com` na sincronização.
+      const sincronizado = async (): Promise<UsuarioEntra> => {
+        const usuario = await cliente.buscarUsuario(p.upn, p.email);
+        if (usuario === null) throw new ErroFornecedor('identidadeNaoSincronizada');
+        return usuario;
+      };
       if (acao === 'revogar') {
         return [
           {
             etapa: 'removerLicencas',
-            executar: async () => (await cliente.removerLicencas(p.upn, p.planosLicenca), null),
+            executar: async () => {
+              const usuario = await cliente.buscarUsuario(p.upn, p.email);
+              await cliente.removerLicencas(usuario?.id ?? p.upn, p.planosLicenca);
+              return null;
+            },
           },
         ];
       }
       return [
         {
           etapa: 'aguardarIdentidadeSincronizada',
-          executar: async () => {
-            const usuario = await cliente.buscarUsuario(p.upn);
-            if (usuario === null) throw new ErroFornecedor('identidadeNaoSincronizada');
-            return usuario.id;
-          },
+          executar: async () => (await sincronizado()).id,
         },
         {
           etapa: 'definirPais',
-          executar: async () => (await cliente.definirPaisDeUso(p.upn, p.paisUso), null),
+          executar: async () => {
+            await cliente.definirPaisDeUso((await sincronizado()).id, p.paisUso);
+            return null;
+          },
         },
         {
           etapa: 'atribuirLicencas',
           executar: async () => {
-            const usuario = await cliente.buscarUsuario(p.upn);
-            if (usuario === null) throw new ErroFornecedor('identidadeNaoSincronizada');
+            const usuario = await sincronizado();
             const atuais = new Set(usuario.licencas.map(normalizarAcesso));
             const faltantes = p.planosLicenca.filter(
               (plano) => !atuais.has(normalizarAcesso(plano)),
             );
-            if (faltantes.length > 0) await cliente.atribuirLicencas(p.upn, faltantes);
+            if (faltantes.length > 0) await cliente.atribuirLicencas(usuario.id, faltantes);
             return null;
           },
         },
         {
           etapa: 'adicionarGrupo',
           executar: async () => {
-            if (p.grupo !== null) await cliente.adicionarAoGrupo(p.upn, p.grupo);
+            if (p.grupo !== null)
+              await cliente.adicionarAoGrupo((await sincronizado()).id, p.grupo);
             return null;
           },
         },
@@ -142,7 +176,7 @@ export function criarFornecedorM365(cliente: ClienteGraph): Fornecedor<'m365'> {
     },
 
     async estadoParaRevogacao(p) {
-      const usuario = await cliente.buscarUsuario(p.upn);
+      const usuario = await cliente.buscarUsuario(p.upn, p.email);
       if (usuario === null) return { contaExiste: false, acessoAtivo: false };
       const atuais = new Set(usuario.licencas.map(normalizarAcesso));
       return {
