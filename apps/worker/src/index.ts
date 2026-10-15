@@ -6,6 +6,12 @@ import type { PoliticaExecucao } from '@gia/dominio';
 import { criarBanco, criarPersistenciaPostgres, urlDoBanco } from '@gia/persistencia';
 import { executarCiclo } from './ciclo.js';
 import { carregarConfiguracaoWorker } from './configuracao.js';
+import {
+  comDocusignReal,
+  docusignRealConfigurado,
+  montarDocusignReal,
+  validarDocusignReal,
+} from './docusign.js';
 import { criarExecutor } from './executor.js';
 
 export {
@@ -17,6 +23,13 @@ export {
 export type { ConfiguracaoWorker } from './configuracao.js';
 
 export { executarCiclo } from './ciclo.js';
+export {
+  CODIGO_DOCUSIGN_REAL_INDISPONIVEL,
+  comDocusignReal,
+  docusignRealConfigurado,
+  montarDocusignReal,
+  validarDocusignReal,
+} from './docusign.js';
 export type { OpcoesCiclo } from './ciclo.js';
 export {
   CODIGO_ACAO_NAO_SUPORTADA,
@@ -45,7 +58,9 @@ export function montarConectores(politica: PoliticaExecucao): CatalogoSimulado {
 /** Valida a configuração e descreve como o worker vai rodar. */
 export function iniciar(env: VariaveisAmbiente = process.env): string {
   const config = carregarConfiguracaoWorker(env);
-  return `worker pronto (${config.ambiente}, escrita externa desligada)`;
+  validarDocusignReal(env);
+  const docusign = docusignRealConfigurado(env) ? ', DocuSign real configurado' : '';
+  return `worker pronto (${config.ambiente}, escrita externa desligada${docusign})`;
 }
 
 /** Sobe o worker sobre o PostgreSQL até `sinal` ser abortado. */
@@ -55,12 +70,15 @@ export async function executarWorker(
   registrar: (linha: string) => void = console.log,
 ): Promise<void> {
   const config = carregarConfiguracaoWorker(env);
-  const db = criarBanco({ url: urlDoBanco(env) });
   const politica = config.politica;
+  validarDocusignReal(env);
+  // A chave do DocuSign é lida do cofre antes de abrir o banco: falha cedo, sem conexão órfã.
+  const docusignReal = await montarDocusignReal(env, politica);
+  const db = criarBanco({ url: urlDoBanco(env) });
   try {
     const executor = criarExecutor({
       persistencia: criarPersistenciaPostgres(db),
-      conectores: montarConectores(politica).conectores,
+      conectores: comDocusignReal(montarConectores(politica).conectores, docusignReal),
       politica,
       limitePorSistema: config.limitePorSistema,
       workerId: config.workerId,
