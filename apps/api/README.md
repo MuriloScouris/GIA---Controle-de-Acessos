@@ -2,9 +2,12 @@
 
 API HTTP do Gia (Fastify, ADR-0001): adaptador fino sobre os casos de uso de
 onboarding. Domínio e regras vêm de `@gia/dominio`; toda entrada é validada
-pelos schemas Zod de `@gia/contratos` (ADR-0005). A API **não fala com nenhum
-sistema de destino**: aprovar só grava a decisão e solicitar execução só grava
-a operação na fila, para o worker consumir.
+pelos schemas Zod de `@gia/contratos` (ADR-0005). A API **não escreve em
+nenhum sistema de destino**: aprovar só grava a decisão e solicitar execução só
+grava a operação na fila, para o worker consumir. Com os conectores reais
+selecionados, ela só **lê**: a origem Jira (importação de chamados) e o
+diretório (AD + Microsoft 365, consulta de uso), por `criarLeiturasDoAmbiente`,
+que abre apenas os segredos dessas leituras. O login é pelo Entra ID (OIDC).
 
 ## Rotas
 

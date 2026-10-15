@@ -91,13 +91,13 @@ restrita; o programa não a presume.
 | DocuSign / Administração DocuSign                          | Chave RSA por arquivo, integração, impersonation/consentimento, conta e endpoint regional corretos                      | Homologar permissões para convite/encerramento e efeitos incertos; resolver integração do complemento #19 preservando composição #20                      | #13, #19, #20, #22                    |
 | SoftExpert / Administração SoftExpert                      | Conta de serviço em produção, arquivo do cofre, gateway/CA e catálogos corporativos                                     | `softexpert.wsdlRevogacao`: conferir WSDL/versionamento e contrato de `disableUser`; flag `GIA_SOFTEXPERT_REVOGACAO_CONFERIDA` não substitui comprovação  | #14, #20, #22                         |
 | Jira / Administração Jira e RH                             | Conta/domínio aprovados, token por arquivo, projeto/request types e acesso aos campos                                   | `jira.vinculos`: amostra celetista/terceiro com campos válidos sem exportar dados; homologar deduplicação, criação/revogação e auditoria                  | #15, #20, #22                         |
-| OIDC / Administração Entra e Backend/Segurança             | Tenant/aplicativo, segredo por arquivo, CA/authority/JWKS, redirects, scopes/consentimentos e titular                   | Nove linhas: credenciais, rede/CA, consentimentos, conta/aplicação, papéis, ensaio, rollback, sessões e integração UI                                     | #21, #23; integração DEV-291 pendente |
-| Global / Operações, RH, Segurança e responsável da mudança | SHA implantado, banco/readiness, gates efetivos de API e worker, responsáveis nomeados                                  | Quatro linhas: runtime, regras corporativas, integração final e decisão go-live. Heartbeat só comprova vivacidade do worker                               | #16, #17, #20–#23; DEV-291            |
+| OIDC / Administração Entra e Backend/Segurança             | Tenant/aplicativo, segredo por arquivo, CA/authority/JWKS, redirects, scopes/consentimentos e titular                   | Nove linhas: credenciais, rede/CA, consentimentos, conta/aplicação, papéis, ensaio, rollback, sessões e integração UI                                     | #21, #23; integrados no DEV-291 (#25) |
+| Global / Operações, RH, Segurança e responsável da mudança | SHA implantado, banco/readiness, gates efetivos de API e worker, responsáveis nomeados                                  | Quatro linhas: runtime, regras corporativas, integração final e decisão go-live. Heartbeat só comprova vivacidade do worker                               | #16, #17, #20–#24; DEV-291 (#25)      |
 
 OIDC está implementado em branch paralelo e CI com provedor simulado, sem tenant real.
 Validar login, papéis reais, usuário sem papel negado, callback, erro, logout e auditoria.
-O #23 implementa a integração visual; isso não homologa o tenant nem está incorporado neste
-branch. O #21 usa sessões em memória: decidir persistência/compartilhamento, topologia,
+O #23 implementa a integração visual; a integração técnica de #21/#23 já está feita no
+DEV-291 (PR #25), mas isso não homologa o tenant. O #21 usa sessões em memória: decidir persistência/compartilhamento, topologia,
 reinício e expiração antes de aceitar produção. A arquitetura do projeto exige sessões
 compartilhadas; não ocultar esse desvio como mera credencial pendente.
 Regras fictícias de área/cargo também bloqueiam a ativação.
@@ -148,8 +148,10 @@ Erros usam somente `MATRIZ_NAO_VERIFICADA`, sem eco de conteúdo, argumento, pat
 
 1. Nomear responsáveis; aprovar regras, permissões, consentimentos e decisões específicas.
    Confirmar cofre/ACL/rotação e rede no ambiente autorizado. Manter chave/lista/flags desligadas.
-2. Integrar a sprint via DEV-291 e executar `pnpm check` e `pnpm test:e2e` no SHA final;
-   conferir OIDC com `pnpm --filter @gia/api exec vitest run src/oidc.test.ts` nesse branch.
+2. Integração da sprint feita no DEV-291 (PR #25, verificada por
+   `node scripts/verificar-integracao-sprint1.mjs`). Depois do merge, repetir `pnpm check` e
+   `pnpm test:e2e` no SHA final implantado e conferir OIDC com
+   `pnpm --filter @gia/api exec vitest run src/oidc.test.ts`.
    Nenhum destes testes substitui tenant/ensaio real.
 3. Executar preflight online e gerar matriz por checksum. Validar administrativamente origem
    das evidências e configuração efetiva de todas as instâncias de API/worker.
@@ -180,9 +182,10 @@ Artefatos CI têm retenção de sete dias; preservar cópia sanitizada no reposi
 
 Base desta issue: #22 em `7d205b1e66dc89e6fe626f3c44a626ceb66a6a09`, sobre #20.
 Este delta adiciona matriz/registro/documentação/CI, sem tocar UI, main ou branches de origem.
-Não integra #19/#21/#23; DEV-291 é a frente responsável pela consolidação. Ao integrar,
-preservar composição central #20, preflight #22 e login/UI #21/#23, resolver aditivamente
-scripts/README/workflow/lockfile e repetir gates. Não fazer merge ou deploy nesta issue.
+Esta issue não integrou #19/#21/#23; a consolidação foi feita depois no DEV-291 (PR #25),
+que preserva a composição central #20, o preflight #22, o login/UI #21/#23 e este #24.
+As linhas de integração da matriz continuam pendentes até os gates no SHA final implantado
+e a validação real. Não fazer merge ou deploy nesta issue.
 
 Conhecimento para o Brain: prontidão depende de origem da evidência, SHA implantado,
 validade, titular confirmado, decisão administrativa e ensaio real. Leitura, CI e declaração

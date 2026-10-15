@@ -189,7 +189,7 @@ export const requisitos: readonly Requisito[] = [
         sessoes:
           'Sessoes atuais em memoria: decidir persistencia/compartilhamento, topologia, reinicio e expiracao; registrar risco e validacao autorizada.',
         integracaoUi:
-          'Integrar #21/#23 via DEV-291 e validar /sessao/modo, login e logout; CI simulado nao comprova tenant real.',
+          '#21/#23 integrados no DEV-291 (PR #25); validar /sessao/modo, login e logout no SHA final implantado; CI simulado nao comprova tenant real.',
       } as Record<string, string>
     )[etapa]!,
     comandos: ['oidc', 'administrativo', 'ensaio'] as const,
@@ -230,7 +230,7 @@ export const requisitos: readonly Requisito[] = [
     etapa: 'integracao',
     responsavel: 'Responsavel tecnico da sprint',
     decisaoNecessaria:
-      'DEV-291 deve consolidar snapshots #12 a #23, preservando composicao #20 e login/UI #21/#23; repetir gates no SHA final.',
+      'DEV-291 (PR #25) consolidou #12 a #24, preservando composicao #20 e login/UI #21/#23; repetir gates no SHA final implantado.',
     comandos: ['gates', 'e2e'],
     implementacao: [20, 21, 22, 23],
   },

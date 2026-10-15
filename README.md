@@ -108,7 +108,7 @@ interface sozinha), mas aí o worker não enxerga os pedidos.
 | Variável                  | Quem       | Padrão                                         |
 | ------------------------- | ---------- | ---------------------------------------------- |
 | `GIA_AMBIENTE`            | API/worker | `desenvolvimento` (`teste`, `producao`)        |
-| `GIA_ESCRITA_EXTERNA`     | API/worker | `false` (único valor aceito)                   |
+| `GIA_ESCRITA_EXTERNA`     | API/worker | `false`; `true` exige `GIA_ESCRITA_LIBERADA`   |
 | `PORT`                    | API        | `3000`                                         |
 | `GIA_DATABASE_URL`        | API/worker | API: memória; worker: obrigatória              |
 | `GIA_WORKER_ID`           | worker     | `worker-<host>-<pid>`                          |
