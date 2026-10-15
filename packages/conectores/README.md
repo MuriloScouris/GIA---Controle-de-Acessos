@@ -12,7 +12,9 @@ Adaptadores dos sistemas de destino (AD, Microsoft 365, DocuSign, SoftExpert e J
 
 ## O que ainda não existe
 
-Os transportes reais (LDAPS, Microsoft Graph, eSignature REST, SOAP, REST do Jira) **não** fazem parte deste pacote: dependem de credenciais do cofre e de acesso aos ambientes. Ao implementá-los, cada transporte deve:
+O transporte DocuSign eSignature REST está implementado em `src/docusign/`, com JWT e configuração por ambiente. Veja [DOCUSIGN.md](DOCUSIGN.md) para montagem, testes e dependências de ativação em produção. O catálogo padrão ainda é simulado.
+
+Os demais transportes reais (LDAPS, Microsoft Graph, SOAP, REST do Jira) dependem de credenciais do cofre e de acesso aos ambientes. Ao implementá-los, cada transporte deve:
 
 - lançar `ErroFornecedor` com o tipo correto (`timeout`, `respostaPerdida`, `conexaoRecusada`, `limiteDeTaxa`, `recusado`);
 - tratar 2xx com erro interno como `recusado`;
