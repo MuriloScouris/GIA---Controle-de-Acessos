@@ -27,20 +27,21 @@ export class SoftexpertSimulado implements ClienteSoftexpert {
     this.funcoes = new Set((estado.funcoes ?? []).map(normalizarAcesso));
     this.grupos = new Set((estado.grupos ?? []).map(normalizarAcesso));
     for (const usuario of estado.usuarios ?? []) {
-      this.usuarios.set(normalizarAcesso(usuario.login), usuario);
+      this.usuarios.set(normalizarAcesso(usuario.identificador), usuario);
     }
   }
 
-  usuario(login: string): UsuarioSoftexpert | null {
-    return this.usuarios.get(normalizarAcesso(login)) ?? null;
+  /** Usuário pelo IDUSER (matrícula ou CPF), como o SE Suite identifica. */
+  usuario(identificador: string): UsuarioSoftexpert | null {
+    return this.usuarios.get(normalizarAcesso(identificador)) ?? null;
   }
 
   testar(): Promise<void> {
     return this.roteiro.passar('testar', () => undefined);
   }
 
-  buscarUsuario(login: string): Promise<UsuarioSoftexpert | null> {
-    return this.roteiro.passar('buscarUsuario', () => this.usuario(login));
+  buscarUsuario(identificador: string): Promise<UsuarioSoftexpert | null> {
+    return this.roteiro.passar('buscarUsuario', () => this.usuario(identificador));
   }
 
   areaExiste(area: string): Promise<boolean> {
@@ -57,7 +58,19 @@ export class SoftexpertSimulado implements ClienteSoftexpert {
 
   criarUsuario(novo: NovoUsuarioSoftexpert): Promise<string> {
     return this.roteiro.passar('criarUsuario', () => {
-      if (this.usuario(novo.login)?.ativo === true) {
+      const existente = this.usuario(novo.identificador);
+      if (
+        existente !== null &&
+        existente.ativo === true &&
+        normalizarAcesso(existente.login) === normalizarAcesso(novo.login) &&
+        normalizarAcesso(existente.area) === normalizarAcesso(novo.area) &&
+        normalizarAcesso(existente.funcao) === normalizarAcesso(novo.funcao) &&
+        normalizarAcesso(existente.grupoAcesso ?? '') === normalizarAcesso(novo.grupoAcesso)
+      ) {
+        // Mesmo usuário já criado (resposta perdida na tentativa anterior): idempotente.
+        return existente.identificador;
+      }
+      if (existente?.ativo === true) {
         throw new ErroFornecedor(
           'recusado',
           'USUARIO_JA_EXISTE',
@@ -75,7 +88,7 @@ export class SoftexpertSimulado implements ClienteSoftexpert {
           'Área, função ou grupo inexistente.',
         );
       }
-      this.usuarios.set(normalizarAcesso(novo.login), {
+      this.usuarios.set(normalizarAcesso(novo.identificador), {
         login: novo.login,
         identificador: novo.identificador,
         ativo: true,
@@ -87,9 +100,9 @@ export class SoftexpertSimulado implements ClienteSoftexpert {
     });
   }
 
-  inativarUsuario(login: string): Promise<void> {
+  inativarUsuario(identificador: string): Promise<void> {
     return this.roteiro.passar('inativarUsuario', () => {
-      const usuario = this.usuario(login);
+      const usuario = this.usuario(identificador);
       if (usuario === null) {
         throw new ErroFornecedor(
           'recusado',
@@ -97,7 +110,7 @@ export class SoftexpertSimulado implements ClienteSoftexpert {
           'O usuário não existe no SoftExpert.',
         );
       }
-      this.usuarios.set(normalizarAcesso(login), { ...usuario, ativo: false });
+      this.usuarios.set(normalizarAcesso(identificador), { ...usuario, ativo: false });
     });
   }
 }
