@@ -94,6 +94,14 @@ conectores. Sobreposições aditivas: `.github/workflows/ci.yml` com #12 e
 recalcular o lockfile; não substituir esses arquivos pela versão de uma branch.
 Depois da integração aprovada, repetir todos os gates sobre o commit combinado.
 
+Durante esta entrega, DEV-280 abriu o [PR #16](https://github.com/MuriloScouris/GIA---Controle-de-Acessos/pull/16).
+Ele também adiciona exports em `packages/contratos/src/index.ts` e conteúdo ao
+README: preservar os exports de histórico e os operacionais. A liberação de
+escrita descrita nesse PR não está presente na base desta branch; o checklist
+abaixo descreve a dependência de integração, não uma ausência no código do #16.
+Os conectores reais ainda precisam ser registrados na composição operacional,
+e o próprio #16 mantém OIDC e validação na infraestrutura real como pendências.
+
 ## Checklist de go-live — pendente de ambiente e autorização
 
 Não marcar itens abaixo usando o ensaio local simulado. Registrar responsável,
