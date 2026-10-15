@@ -3,7 +3,7 @@
  * simuladores de cada fornecedor. Os adaptadores implementam o contrato
  * `Conector` do domínio sobre um cliente de transporte injetado; os
  * simuladores implementam esses clientes em memória, sem rede nem segredos.
- * Nenhum transporte real (LDAPS, Graph, REST, SOAP) existe neste pacote ainda.
+ * O Jira Cloud também dispõe de transporte REST real, habilitado explicitamente.
  */
 export const PACOTE = '@gia/conectores';
 
@@ -18,6 +18,10 @@ export * from './adaptadores/docusign.js';
 export * from './adaptadores/softexpert.js';
 export * from './adaptadores/jira-destino.js';
 export * from './adaptadores/jira-origem.js';
+export * from './jira/http.js';
+export * from './jira/origem.js';
+export * from './jira/destino.js';
+export * from './jira/ambiente.js';
 
 export * from './simuladores/roteiro.js';
 export * from './simuladores/ad.js';

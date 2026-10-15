@@ -10,6 +10,10 @@ Hermes + Dev Opus + Dev Sonnet + Revisor Terra + Revisor Sol). Fluxo: issue no
 Linear → branch/worktree por issue → PR → CI → revisão independente → merge
 squash → Done.
 
+O transporte REST do Jira Cloud (DEV-285) possui opt-in de origem/destino e testes
+de contrato. A ativação produtiva permanece pendente; veja configuração, evidências
+e bloqueios no [runbook Jira](docs/integracoes/jira-dev-285.md).
+
 ## Primeira entrega: ponta a ponta simulada
 
 Tudo funciona de ponta a ponta **sem escrever em nenhum sistema real**: a

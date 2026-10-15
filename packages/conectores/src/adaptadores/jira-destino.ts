@@ -78,7 +78,7 @@ export function criarFornecedorJiraDestino(cliente: ClienteJira): Fornecedor<'ji
             etapa: 'removerGrupos',
             executar: async () => {
               const accountId = await idDaConta();
-              for (const grupo of p.grupos) await cliente.removerDoGrupo(accountId, grupo);
+              await alterarGrupos(p.grupos, (grupo) => cliente.removerDoGrupo(accountId, grupo));
               return null;
             },
           },
@@ -96,7 +96,7 @@ export function criarFornecedorJiraDestino(cliente: ClienteJira): Fornecedor<'ji
           etapa: 'adicionarGrupos',
           executar: async () => {
             const accountId = await idDaConta();
-            for (const grupo of p.grupos) await cliente.adicionarAoGrupo(accountId, grupo);
+            await alterarGrupos(p.grupos, (grupo) => cliente.adicionarAoGrupo(accountId, grupo));
             return null;
           },
         },
@@ -117,4 +117,22 @@ export function criarFornecedorJiraDestino(cliente: ClienteJira): Fornecedor<'ji
 
 export function criarConectorJiraDestino(cliente: ClienteJira, opcoes: OpcoesConector): Conector {
   return criarConector(criarFornecedorJiraDestino(cliente), opcoes);
+}
+
+async function alterarGrupos(
+  grupos: readonly string[],
+  alterar: (grupo: string) => Promise<void>,
+): Promise<void> {
+  let concluidos = 0;
+  for (const grupo of new Set(grupos)) {
+    try {
+      await alterar(grupo);
+      concluidos += 1;
+    } catch (erro) {
+      if (erro instanceof ErroFornecedor && concluidos > 0) {
+        throw new ErroFornecedor(erro.tipo, erro.codigo, erro.message, erro.tentarAposMs, true);
+      }
+      throw erro;
+    }
+  }
 }

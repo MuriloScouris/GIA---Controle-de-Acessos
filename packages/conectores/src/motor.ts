@@ -137,7 +137,14 @@ export function criarConector<S extends Sistema>(
         referencia = (await comLimite(() => passo.executar(), timeoutChamadaMs)) ?? referencia;
         ultimaConcluida = etapa;
       } catch (erro) {
-        return resultadoDeFalha(sistema, modo, ultimaConcluida, ultimaConcluida !== anterior, erro);
+        return resultadoDeFalha(
+          sistema,
+          modo,
+          ultimaConcluida,
+          ultimaConcluida !== anterior ||
+            (erro instanceof ErroFornecedor && erro.progressoConfirmado),
+          erro,
+        );
       }
     }
     return resultado('confirmado', ultimaConcluida, 'OK', {

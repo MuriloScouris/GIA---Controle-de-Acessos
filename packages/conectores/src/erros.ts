@@ -23,6 +23,8 @@ export class ErroFornecedor extends Error {
     mensagem: string = 'Falha ao acessar o fornecedor.',
     /** `Retry-After` do fornecedor, em milissegundos. */
     readonly tentarAposMs: number | null = null,
+    /** A etapa tem suboperações já confirmadas (por exemplo, um dos grupos). */
+    readonly progressoConfirmado: boolean = false,
   ) {
     super(mensagem);
     this.name = 'ErroFornecedor';

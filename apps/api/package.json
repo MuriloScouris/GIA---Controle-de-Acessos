@@ -17,6 +17,7 @@
     "start": "node dist/index.js"
   },
   "dependencies": {
+    "@gia/conectores": "workspace:*",
     "@gia/contratos": "workspace:*",
     "@gia/dominio": "workspace:*",
     "@gia/persistencia": "workspace:*",

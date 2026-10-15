@@ -12,7 +12,13 @@ Adaptadores dos sistemas de destino (AD, Microsoft 365, DocuSign, SoftExpert e J
 
 ## O que ainda não existe
 
-Os transportes reais (LDAPS, Microsoft Graph, eSignature REST, SOAP, REST do Jira) **não** fazem parte deste pacote: dependem de credenciais do cofre e de acesso aos ambientes. Ao implementá-los, cada transporte deve:
+O transporte REST do Jira Cloud está em `src/jira/`, com configuração opt-in,
+origem por cursor e destino com escrita desligada por padrão. Veja o
+[runbook DEV-285](../../docs/integracoes/jira-dev-285.md), incluindo bloqueios reais
+de ativação e validação produtiva pendente.
+
+Os demais transportes reais (LDAPS, Microsoft Graph, eSignature REST, SOAP) ainda
+dependem de implementação, credenciais do cofre e acesso aos ambientes. Cada transporte deve:
 
 - lançar `ErroFornecedor` com o tipo correto (`timeout`, `respostaPerdida`, `conexaoRecusada`, `limiteDeTaxa`, `recusado`);
 - tratar 2xx com erro interno como `recusado`;
