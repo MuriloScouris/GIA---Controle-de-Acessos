@@ -2,11 +2,19 @@
 // Verificação independente da integração da Sprint 1 (DEV-291).
 //
 // Uso: node scripts/verificar-integracao-sprint1.mjs [--alvo <ref>] [--sem-fetch]
+//        [--somente-blobs] [--gravar-blobs] [--repo <pasta>] [--manifesto <arquivo>]
 //   --alvo: o que verificar (padrão: HEAD).
+//   --somente-blobs: só o passo 0 (não precisa das refs dos PRs nem de rede).
+//   --gravar-blobs: grava no manifesto o hash atual de cada arquivo declarado.
+//     É um ato de revisão: o diff do manifesto mostra exatamente o que mudou.
 //
 // Nada aqui usa os commits de merge publicados nem as resoluções deles. Parte
 // só dos commits de origem de cada PR (fixados em sprint1-manifesto.json):
 //
+// 0. Hash: todo arquivo declarado como exceção (substituição, ajuste ou
+//    conflito) tem o hash do blob git fixado no manifesto. Declarar um arquivo
+//    não libera conteúdo novo nele: qualquer mudança posterior (ex.: um desvio
+//    `GIA_BACKDOOR=1 -> sessão simulada` em apps/api/src/index.ts) falha.
 // 1. Fixação: o head de cada PR no GitHub ainda é o integrado.
 // 2. Preservação: toda linha que cada PR adiciona (contra a própria base) existe
 //    no alvo, e todo arquivo que ele cria continua lá. Exceção só se declarada
@@ -30,11 +38,12 @@ const opcao = (nome) => {
   const i = args.indexOf(nome);
   return i === -1 ? undefined : args[i + 1];
 };
-const raiz = join(dirname(fileURLToPath(import.meta.url)), '..');
-const manifesto = JSON.parse(
-  readFileSync(join(raiz, 'docs/integracao/sprint1-manifesto.json'), 'utf8'),
-);
+const MANIFESTO = 'docs/integracao/sprint1-manifesto.json';
+const raiz = opcao('--repo') ?? join(dirname(fileURLToPath(import.meta.url)), '..');
+const caminhoManifesto = opcao('--manifesto') ?? join(raiz, MANIFESTO);
+const manifesto = JSON.parse(readFileSync(caminhoManifesto, 'utf8'));
 const IGNORADOS = new Set(manifesto.ignorados);
+const somenteBlobs = args.includes('--somente-blobs') || args.includes('--gravar-blobs');
 
 const git = (cwd, ...a) =>
   execFileSync('git', ['-C', cwd, ...a], {
@@ -51,7 +60,7 @@ const tenta = (cwd, ...a) => {
 };
 const linhas = (texto) => texto.split('\n').filter((l) => l !== '');
 
-if (!args.includes('--sem-fetch')) git(raiz, 'fetch', '--quiet', 'origin');
+if (!args.includes('--sem-fetch') && !somenteBlobs) git(raiz, 'fetch', '--quiet', 'origin');
 const alvo = git(raiz, 'rev-parse', opcao('--alvo') ?? 'HEAD').trim();
 const falhas = [];
 const falhar = (msg) => {
@@ -67,6 +76,57 @@ const normalizar = (l) => l.trim().replace(/[,;]+$/, '');
 const relevante = (l) => /[\p{L}\p{N}]/u.test(l);
 
 console.log(`Alvo: ${alvo}`);
+
+function concluir() {
+  if (falhas.length > 0) {
+    console.log(`\nFALHOU: ${falhas.length} problema(s) não declarado(s).`);
+    process.exitCode = 1;
+  } else if (somenteBlobs) {
+    console.log('\nOK: arquivos declarados conferem com os hashes do manifesto.');
+  } else {
+    console.log('\nOK: nada dos PRs de origem se perdeu sem declaração; reconstrução confere.');
+  }
+}
+
+// 0 — hash de cada arquivo declarado. O manifesto não pode fixar o próprio hash.
+const declarados = [
+  ...new Set([
+    ...manifesto.substituicoes.map((d) => d.arquivo),
+    ...manifesto.ajustesIntegracao.map((d) => d.arquivo),
+    ...manifesto.conflitosPorUniao,
+  ]),
+]
+  .filter((a) => a !== MANIFESTO)
+  .sort();
+const blobNoAlvo = (arquivo) => {
+  const r = tenta(raiz, 'rev-parse', `${alvo}:${arquivo}`);
+  return r.ok ? r.saida.trim() : null;
+};
+if (args.includes('--gravar-blobs')) {
+  manifesto.blobs = Object.fromEntries(declarados.map((a) => [a, blobNoAlvo(a)]));
+  writeFileSync(caminhoManifesto, `${JSON.stringify(manifesto, null, 2)}\n`);
+  console.log(`${declarados.length} hash(es) gravado(s) em ${caminhoManifesto}`);
+  process.exit(0);
+}
+console.log('\n== Hash dos arquivos declarados');
+const blobs = manifesto.blobs ?? {};
+for (const arquivo of declarados) {
+  const atual = blobNoAlvo(arquivo);
+  if (!(arquivo in blobs)) falhar(`${arquivo}: declarado sem hash no manifesto`);
+  else if (blobs[arquivo] !== atual)
+    falhar(
+      `${arquivo}: conteúdo difere do declarado ` +
+        `(${(atual ?? 'ausente').slice(0, 12)} ≠ ${(blobs[arquivo] ?? 'ausente').slice(0, 12)}); ` +
+        'revisar a mudança e regravar o hash',
+    );
+}
+for (const arquivo of Object.keys(blobs))
+  if (!declarados.includes(arquivo)) falhar(`${arquivo}: hash no manifesto sem declaração`);
+console.log(`  ${declarados.length} arquivo(s) declarado(s) conferido(s) por hash`);
+if (somenteBlobs) {
+  concluir();
+  process.exit();
+}
 
 // 1 + 2 — fixação e preservação, PR a PR.
 console.log('\n== Fixação e preservação (a partir dos commits de origem)');
@@ -197,9 +257,4 @@ try {
   git(raiz, 'worktree', 'remove', '--force', pasta);
 }
 
-if (falhas.length > 0) {
-  console.log(`\nFALHOU: ${falhas.length} problema(s) não declarado(s).`);
-  process.exitCode = 1;
-} else {
-  console.log('\nOK: nada dos PRs de origem se perdeu sem declaração; reconstrução confere.');
-}
+concluir();
