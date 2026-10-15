@@ -1,6 +1,15 @@
 import { randomUUID } from 'node:crypto';
-import type { ConfiguracaoAmbiente, SaudeResposta } from '@gia/contratos';
-import type { Uuid } from '@gia/dominio';
+import {
+  RegistroMetricas,
+  criarRegistrador,
+  liberacaoDosGates,
+  modoDosGates,
+  type ConfiguracaoAmbiente,
+  type GatesDeEscrita,
+  type Registrador,
+  type SaudeResposta,
+} from '@gia/contratos';
+import { configuracaoPadrao, type Uuid } from '@gia/dominio';
 import { ErroDeConcorrencia } from '@gia/persistencia';
 import Fastify, { type FastifyInstance } from 'fastify';
 import type { DependenciasCasosDeUso } from './aplicacao/dependencias.js';
@@ -11,6 +20,7 @@ import type {
   Relogio,
 } from './aplicacao/portas.js';
 import { REGRAS_PROPOSTA_FICTICIAS, type RegrasProposta } from './aplicacao/regras-proposta.js';
+import { registrarObservabilidade, type VerificacoesProntidao } from './http/observabilidade.js';
 import { enviarFalha } from './http/protocolo.js';
 import { registrarRotas, registrarRotasDeSessaoSimulada } from './http/rotas.js';
 import { criarPersistenciaEmMemoria } from './persistencia/memoria.js';
@@ -28,6 +38,13 @@ export interface OpcoesApp {
   readonly relogio?: Relogio;
   readonly gerarId?: () => Uuid;
   readonly sessoes?: SessoesSimuladas;
+  /** Gates de escrita externa (regra 8); padrão: tudo desligado e operações simuladas. */
+  readonly gates?: GatesDeEscrita;
+  readonly registrador?: Registrador;
+  readonly metricas?: RegistroMetricas;
+  readonly versao?: string;
+  /** Verificações extras de prontidão (ex.: o banco). A persistência sempre é verificada. */
+  readonly verificacoes?: VerificacoesProntidao;
 }
 
 const relogioDoSistema: Relogio = { agora: () => new Date().toISOString() };
@@ -39,14 +56,24 @@ const relogioDoSistema: Relogio = { agora: () => new Date().toISOString() };
  */
 export function criarApp(opcoes: OpcoesApp = {}): FastifyInstance {
   const ambiente = opcoes.ambiente ?? 'desenvolvimento';
+  const gates: GatesDeEscrita = opcoes.gates ?? { ambiente, escritaExterna: false, liberadas: [] };
   const relogio = opcoes.relogio ?? relogioDoSistema;
+  const registrador =
+    opcoes.registrador ?? criarRegistrador({ servico: 'api', ambiente, saida: () => undefined });
+  const persistencia =
+    opcoes.persistencia ??
+    criarPersistenciaEmMemoria({
+      ...configuracaoPadrao(),
+      liberacaoEscrita: liberacaoDosGates(gates),
+    });
   const casosDeUso: DependenciasCasosDeUso = {
-    persistencia: opcoes.persistencia ?? criarPersistenciaEmMemoria(),
+    persistencia,
     fonteJira: opcoes.fonteJira ?? criarJiraSimulado().fonte,
     diretorio: opcoes.diretorio ?? criarDiretorioSimulado(),
     regras: opcoes.regras ?? REGRAS_PROPOSTA_FICTICIAS,
-    // A configuração só aceita escrita externa desligada: as operações nascem simuladas.
-    modoExecucao: 'simulado',
+    // Operações só nascem `real` com a chave mestra ligada; o domínio ainda exige a
+    // liberação do sistema e da operação (regra 8), que vem dos mesmos gates.
+    modoExecucao: modoDosGates(gates),
   };
   const deps = {
     sessoes: opcoes.sessoes ?? criarSessoesSimuladas(relogio),
@@ -64,17 +91,31 @@ export function criarApp(opcoes: OpcoesApp = {}): FastifyInstance {
     return payload;
   });
   // Mensagens internas e do framework nunca vão para a resposta.
-  app.setErrorHandler(async (erro: { statusCode?: number }, _request, reply) => {
+  app.setErrorHandler(async (erro: { statusCode?: number; name?: string }, request, reply) => {
     // Outra transação gravou o mesmo registro antes: o operador recarrega e revisa.
     if (erro instanceof ErroDeConcorrencia) return enviarFalha(reply, 'CONFLITO_DE_VERSAO');
     const entradaInvalida =
       typeof erro.statusCode === 'number' && erro.statusCode >= 400 && erro.statusCode < 500;
-    return entradaInvalida
-      ? enviarFalha(reply, 'DADO_INVALIDO')
-      : enviarFalha(reply, 'ERRO_INTERNO');
+    if (entradaInvalida) return enviarFalha(reply, 'DADO_INVALIDO');
+    // Só o tipo do erro vai para o log: a mensagem pode carregar dado da requisição.
+    registrador.erro('erro_interno', { correlacaoId: request.id, erro: erro.name ?? 'Error' });
+    return enviarFalha(reply, 'ERRO_INTERNO');
   });
   app.setNotFoundHandler(async (_request, reply) => enviarFalha(reply, 'NAO_ENCONTRADO'));
 
+  registrarObservabilidade(app, {
+    registrador,
+    metricas: opcoes.metricas ?? new RegistroMetricas(),
+    gates,
+    versao: opcoes.versao ?? 'desconhecida',
+    verificacoes: {
+      // Abre e fecha uma transação: no PostgreSQL, prova a conexão com o banco.
+      persistencia: async () => {
+        await persistencia.executar(async (tx) => tx.configuracao.atual());
+      },
+      ...opcoes.verificacoes,
+    },
+  });
   app.get('/saude', async (): Promise<SaudeResposta> => ({ status: 'ok' }));
   if (ambiente !== 'producao') registrarRotasDeSessaoSimulada(app, deps);
   registrarRotas(app, deps);

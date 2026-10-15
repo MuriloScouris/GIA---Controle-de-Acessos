@@ -56,9 +56,15 @@ regra de negócio; `501` ação ainda indisponível.
   enums, códigos) e datas/instantes ISO dentro de texto livre não são
   alterados, para a resposta seguir o contrato; a troca da matrícula é literal
   (qualquer caractere). Detalhes de erro passam pela mesma máscara.
-- **Escrita externa desligada:** a configuração só aceita `GIA_ESCRITA_EXTERNA=false`,
-  então as operações nascem em modo `simulado` (regras 8 e 9). Em modo real, o
-  domínio exige a liberação por sistema (`ESCRITA_NAO_LIBERADA`).
+- **Escrita externa desligada por padrão:** as operações nascem `simulado`
+  (regras 8 e 9). Só nascem `real` com `GIA_ESCRITA_EXTERNA=true` (nunca em
+  desenvolvimento), e o domínio ainda exige o sistema e a operação em
+  `GIA_ESCRITA_LIBERADA` (`ESCRITA_NAO_LIBERADA`). Ver
+  [runbook de produção](../../docs/operacao/producao.md).
+- **Saúde e observabilidade:** `GET /saude` (vivacidade), `GET /saude/pronta`
+  (prontidão, 503 se o banco não responde), logs JSON com `x-correlacao-id` e
+  métricas Prometheus em porta interna (`GIA_METRICAS_PORTA`).
+  `pnpm --filter @gia/api smoke` é o smoke test pós-deploy.
 - Respostas com `cache-control: no-store`; erros internos nunca ecoam mensagens
   do framework ou dados recebidos.
 
