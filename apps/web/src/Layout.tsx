@@ -1,19 +1,9 @@
-import { useLayoutEffect, useState, type ReactNode } from 'react';
 import { Button } from 'react-aria-components';
-import { Link, Navigate, NavLink, Outlet, useMatch } from 'react-router';
-import {
-  IconeCaixaEntrada,
-  IconeEscudoCheck,
-  IconeFrasco,
-  IconeLista,
-  IconeMenu,
-  IconeSair,
-} from './componentes/Icones.js';
-import { useSessao } from './sessao/Sessao.js';
-import type { PerfilDemo } from './sessao/perfis.js';
+import { Link, Navigate, Outlet, useLocation } from 'react-router';
+import { IconeEscudoCheck, IconeFrasco, IconeSair } from './componentes/Icones.js';
+import { MarcaGia } from './componentes/MarcaGia.js';
+import { useSessao, type UsuarioSessao } from './sessao/Sessao.js';
 import { NOME_PRODUTO } from './titulo.js';
-
-const AVISO_DADOS_DE_EXEMPLO = 'Ambiente com dados de exemplo';
 
 function iniciais(nome: string): string {
   const palavras = nome.split(/[\s/]+/).filter(Boolean);
@@ -21,179 +11,88 @@ function iniciais(nome: string): string {
   return `${palavras[0]![0]}${palavras[palavras.length - 1]![0]}`.toUpperCase();
 }
 
-function PularConteudo() {
+function Operador({
+  perfil,
+  sair,
+  movel = false,
+}: {
+  perfil: UsuarioSessao;
+  sair: () => void;
+  movel?: boolean;
+}) {
   return (
-    <a className="pular-conteudo" href="#conteudo">
-      Pular para o conteúdo
-    </a>
-  );
-}
-
-/**
- * Shell do painel de chamados: reproduz o draft SuperDesign "Onboarding de Acessos - Solicitações"
- * (sidebar escura de 250px, top-row e conteúdo à esquerda), com a marca GIA.
- */
-function ShellLista({ perfil, sair }: { perfil: PerfilDemo; sair: () => void }): ReactNode {
-  const [menuAberto, setMenuAberto] = useState(false);
-  return (
-    <div className="tema-lista pagina">
-      <PularConteudo />
-      <aside className="sidebar">
-        <div className="brand">
-          <div className="brand-mark" aria-hidden="true">
-            {NOME_PRODUTO}
-          </div>
-          <div className="brand-text">
-            <div className="brand-title">{NOME_PRODUTO}</div>
-            <div className="brand-sub">Controle de Acessos</div>
-          </div>
-          <Button
-            className="menu-alternar"
-            aria-expanded={menuAberto}
-            aria-controls="menu-principal"
-            onPress={() => setMenuAberto((aberto) => !aberto)}
-          >
-            <IconeMenu />
-            <span className="so-leitor">Menu</span>
-          </Button>
-        </div>
-        <div id="menu-principal" className="menu-rolavel" data-aberto={menuAberto || undefined}>
-          <nav className="menu" aria-label="Navegação principal">
-            <div className="nav-item">
-              <NavLink className="nav-link" to="/" end>
-                <IconeLista />
-                Painel de chamados
-              </NavLink>
-            </div>
-          </nav>
-          <div className="operador">
-            <div className="operador-avatar" aria-hidden="true">
-              {iniciais(perfil.nome)}
-            </div>
-            <div className="operador-info">
-              <div className="operador-rotulo">Operador</div>
-              <div className="operador-nome">{perfil.nome}</div>
-            </div>
-            <Button className="operador-sair" onPress={sair} aria-label="Sair">
-              <IconeSair />
-              <span className="operador-sair-texto" aria-hidden="true">
-                Sair
-              </span>
-            </Button>
-          </div>
-        </div>
-      </aside>
-      <div className="principal">
-        <header className="top-row">
-          <span className="top-subtitle">Gestão do ciclo de vida de acessos</span>
-          <span className="badge-soft warn">
-            <IconeFrasco />
-            {AVISO_DADOS_DE_EXEMPLO}
-          </span>
-        </header>
-        <main id="conteudo" className="conteudo" tabIndex={-1}>
-          <Outlet />
-        </main>
-      </div>
+    <div className={movel ? 'operator operator-mobile' : 'operator operator-desktop'}>
+      <span className="operator-avatar" aria-hidden="true">
+        {iniciais(perfil.nome)}
+      </span>
+      <span className="operator-info">
+        <span className="operator-label">{movel ? 'Operando como' : 'Operador'}</span>
+        <span className="operator-name">{perfil.nome}</span>
+      </span>
+      <Button className="operator-sair" onPress={sair} aria-label="Sair">
+        <IconeSair />
+        {movel && <span aria-hidden="true">Sair</span>}
+      </Button>
     </div>
   );
 }
 
-/**
- * Shell do detalhe do pedido: reproduz o draft SuperDesign "Detalhe da solicitação de acesso"
- * (header branco com navegação horizontal e barra de contexto navy), com a marca GIA.
- */
-function ShellDetalhe({ perfil, sair }: { perfil: PerfilDemo; sair: () => void }): ReactNode {
+/** Enquanto o servidor diz como entrar e se já há sessão. */
+export function CarregandoSessao() {
   return (
-    <div className="tema-detalhe">
-      <PularConteudo />
-      <header className="det-header">
-        <div className="det-header-linha">
-          <Link className="det-marca" to="/" aria-label={`${NOME_PRODUTO} — ir para o painel`}>
-            <svg
-              viewBox="0 0 40 40"
-              className="det-marca-icone"
-              aria-hidden="true"
-              focusable="false"
-            >
-              <path d="M8 7.5h15.2l8.8 8.8v16.2H8z" fill="#5b4bd2" />
-              <path
-                d="M23.2 7.5v8.8H32"
-                fill="none"
-                stroke="#ffb097"
-                strokeWidth="2.2"
-                strokeLinejoin="round"
-              />
-              <path
-                d="M13.5 21h13M13.5 26h9"
-                fill="none"
-                stroke="#fff"
-                strokeWidth="2.1"
-                strokeLinecap="round"
-              />
-            </svg>
-            <span className="det-marca-texto">
-              <strong>{NOME_PRODUTO}</strong>
-              <span>Controle de Acessos</span>
+    <main id="conteudo" className="estado estado-carregando-sessao">
+      <p role="status">Carregando sessão…</p>
+    </main>
+  );
+}
+
+/**
+ * Shell das telas internas, no desenho do MainLayout + NavMenu do GIA antigo: cabeçalho branco
+ * com marca, navegação horizontal e operador, e a faixa navy de contexto logo abaixo.
+ */
+export function Layout() {
+  const { modo, perfil, sair } = useSessao();
+  const local = useLocation();
+
+  if (modo === 'carregando') return <CarregandoSessao />;
+  if (!perfil) {
+    // Volta para onde estava depois do login (só caminho local; o servidor revalida).
+    const retorno = `${local.pathname}${local.search}`;
+    const destino = retorno === '/' ? '/login' : `/login?retorno=${encodeURIComponent(retorno)}`;
+    return <Navigate to={destino} replace />;
+  }
+  return (
+    <div className="app-shell">
+      <a className="pular-conteudo" href="#conteudo">
+        Pular para o conteúdo
+      </a>
+      <header className="shell-header">
+        <div className="shell-primary">
+          <Link className="brand" to="/" aria-label={`${NOME_PRODUTO} — ir para o painel`}>
+            <MarcaGia className="brand-mark" />
+            <span className="brand-text">
+              <strong className="brand-title">{NOME_PRODUTO}</strong>
+              <span className="brand-sub">Controle de Acessos</span>
             </span>
           </Link>
-          <div className="det-operador">
-            <span className="det-operador-avatar" aria-hidden="true">
-              {iniciais(perfil.nome)}
-            </span>
-            <span className="det-operador-info">
-              <span className="det-operador-rotulo">Operador</span>
-              <span className="det-operador-nome">{perfil.nome}</span>
-            </span>
-            <Button className="det-sair" onPress={sair}>
-              <IconeSair />
-              Sair
-            </Button>
-          </div>
+          <Operador perfil={perfil} sair={sair} />
         </div>
-        <nav className="det-nav" aria-label="Navegação principal">
-          {/* O detalhe pertence à seção do painel: o item aparece ativo, como no draft. */}
-          <Link className="det-nav-link ativo" to="/">
-            <IconeCaixaEntrada />
-            Painel de chamados
-            <span className="det-nav-ponto" aria-hidden="true" />
-          </Link>
-        </nav>
-        <div className="det-contexto">
-          <span className="det-contexto-texto">
+        <div className="shell-contexto">
+          <div className="shell-contexto-texto">
             <IconeEscudoCheck />
-            Gestão segura do ciclo de vida de acessos
-          </span>
-          <span className="det-contexto-aviso">
+            <span>Gestão segura do ciclo de vida de acessos</span>
+          </div>
+          <span className="integration-status is-mock" role="status">
             <IconeFrasco />
-            {AVISO_DADOS_DE_EXEMPLO}
+            Ambiente com dados de exemplo
           </span>
         </div>
       </header>
-      <main id="conteudo" className="det-main" tabIndex={-1}>
-        <Outlet />
+      <main id="conteudo" className="shell-main" tabIndex={-1}>
+        <article className="content">
+          <Outlet />
+        </article>
       </main>
     </div>
-  );
-}
-
-/** Layout das telas internas; sem sessão (simulada) redireciona para o login. */
-export function Layout() {
-  const { perfil, sair } = useSessao();
-  const emDetalhe = useMatch('/pedidos/:pedidoId') !== null;
-
-  // Os tokens do draft (e dos portais, como o diálogo) são escolhidos pela raiz do documento.
-  useLayoutEffect(() => {
-    document.documentElement.dataset.tema = emDetalhe ? 'detalhe' : 'lista';
-    return () => {
-      delete document.documentElement.dataset.tema;
-    };
-  }, [emDetalhe]);
-
-  if (!perfil) return <Navigate to="/login" replace />;
-  return emDetalhe ? (
-    <ShellDetalhe perfil={perfil} sair={sair} />
-  ) : (
-    <ShellLista perfil={perfil} sair={sair} />
   );
 }

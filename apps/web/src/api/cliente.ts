@@ -43,6 +43,32 @@ export type ComandoDoPedido = Comando extends infer C
     : never
   : never;
 
+/** Como as pessoas entram, segundo o servidor (`GET /sessao/modo`). */
+export type ModoSessao = 'oidc' | 'simulada' | 'indisponivel';
+
+/** Hosts para onde o logout pode levar o navegador (o logout do Entra ID). */
+const HOSTS_DE_LOGOUT = ['login.microsoftonline.com'];
+
+function lerModo(dado: unknown): ModoSessao {
+  const modo = (dado as { modo?: unknown } | null)?.modo;
+  if (modo === 'oidc' || modo === 'simulada' || modo === 'indisponivel') return modo;
+  throw new Error('modo desconhecido');
+}
+
+/** URL de logout do Entra ID, ou `null` se a resposta apontar para outro lugar. */
+function lerLogout(dado: unknown): string | null {
+  const url = (dado as { redirecionarPara?: unknown } | null)?.redirecionarPara;
+  if (typeof url !== 'string') return null;
+  try {
+    const lida = new URL(url);
+    return lida.protocol === 'https:' && HOSTS_DE_LOGOUT.includes(lida.host)
+      ? lida.toString()
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Cliente da API do GIA: toda resposta é validada pelos esquemas de `@gia/contratos`. */
 export function criarClienteApi(baseUrl = '', fetcher: Fetcher = (u, i) => fetch(u, i)) {
   async function pedir(caminho: string, init: RequestInit): Promise<Response> {
@@ -110,6 +136,43 @@ export function criarClienteApi(baseUrl = '', fetcher: Fetcher = (u, i) => fetch
 
     encerrarSessao: async (): Promise<void> => {
       await pedir('/sessao', { method: 'DELETE', headers: { ...CABECALHO_CSRF } });
+    },
+
+    /** Qual login oferecer. Falha de rede ou resposta estranha é `indisponivel`: nunca cai na simulada. */
+    modoSessao: async (): Promise<ModoSessao> => {
+      try {
+        return lerModo(await (await pedir('/sessao/modo', {})).json());
+      } catch {
+        return 'indisponivel';
+      }
+    },
+
+    /** Sessão aberta no servidor, ou `null` sem sessão (401). */
+    sessaoAtual: async (): Promise<SessaoResposta | null> => {
+      const resposta = await pedir('/sessao', {});
+      if (resposta.status === 401) return null;
+      return ler(resposta, (d) => sessaoRespostaSchema.parse(d), 'Falha ao consultar a sessão');
+    },
+
+    /** Endereço que leva ao login do Entra ID; o retorno é sempre um caminho local. */
+    urlEntrarOidc: (retorno: string): string =>
+      `${baseUrl}/sessao/oidc/entrar?retorno=${encodeURIComponent(retorno)}`,
+
+    /**
+     * Logout OIDC por POST com CSRF: o servidor encerra a sessão local e devolve o
+     * logout do Entra ID. Só um destino do Entra ID é aceito.
+     */
+    sairOidc: async (): Promise<string | null> => {
+      const resposta = await pedir('/sessao/oidc/sair', {
+        method: 'POST',
+        headers: { ...CABECALHO_CSRF },
+      });
+      if (!resposta.ok) return null;
+      try {
+        return lerLogout(await resposta.json());
+      } catch {
+        return null;
+      }
     },
 
     listarPedidos: (): Promise<ListaPedidos> =>

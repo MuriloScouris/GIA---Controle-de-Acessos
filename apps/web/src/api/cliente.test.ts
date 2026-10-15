@@ -95,3 +95,56 @@ describe('cliente da API', () => {
     });
   });
 });
+
+describe('cliente da API: login', () => {
+  it('modo da sessão vem do servidor; falha ou resposta estranha é indisponível (nunca simulada)', async () => {
+    expect(await criarClienteApi('', () => json({ modo: 'oidc' })).modoSessao()).toBe('oidc');
+    expect(await criarClienteApi('', () => json({ modo: 'root' })).modoSessao()).toBe(
+      'indisponivel',
+    );
+    expect(await criarClienteApi('', () => Promise.reject(new Error('rede'))).modoSessao()).toBe(
+      'indisponivel',
+    );
+  });
+
+  it('sessão atual: 401 é ausência de sessão; 200 é validada pelo contrato', async () => {
+    expect(
+      await criarClienteApi('', () => json({ codigo: 'NAO_AUTENTICADO' }, 401)).sessaoAtual(),
+    ).toBeNull();
+    const sessao = {
+      usuarioId: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',
+      nome: 'Pessoa',
+      papeis: ['revisor'],
+      expiraEm: '2026-10-15T20:00:00.000Z',
+    };
+    expect(await criarClienteApi('', () => json(sessao)).sessaoAtual()).toEqual(sessao);
+  });
+
+  it('entrar com Microsoft aponta para a API com o retorno codificado', () => {
+    expect(criarClienteApi('/api').urlEntrarOidc('/pedidos/1?a=b')).toBe(
+      '/api/sessao/oidc/entrar?retorno=%2Fpedidos%2F1%3Fa%3Db',
+    );
+  });
+
+  it('logout é POST com CSRF e só aceita destino do Entra ID', async () => {
+    const chamadas: RequestInit[] = [];
+    const sair = (destino: unknown, status = 200) =>
+      criarClienteApi('/api', (_url, init) => {
+        chamadas.push(init ?? {});
+        return json({ redirecionarPara: destino }, status);
+      }).sairOidc();
+    expect(await sair('https://login.microsoftonline.com/t/oauth2/v2.0/logout')).toBe(
+      'https://login.microsoftonline.com/t/oauth2/v2.0/logout',
+    );
+    expect(chamadas[0]).toMatchObject({ method: 'POST', headers: { 'x-gia-csrf': '1' } });
+    for (const fora of [
+      'https://atacante.exemplo/logout',
+      'javascript:alert(1)',
+      'http://login.microsoftonline.com/x',
+      42,
+    ]) {
+      expect(await sair(fora)).toBeNull();
+    }
+    expect(await sair('https://login.microsoftonline.com/x', 403)).toBeNull();
+  });
+});

@@ -133,6 +133,11 @@ export function criarApiFalsa(sobrescritas: Partial<ClienteApi> = {}): Falsa {
       expiraEm: '2026-10-14T20:00:00.000Z',
     }),
     encerrarSessao: async () => undefined,
+    modoSessao: async () => 'simulada',
+    sessaoAtual: async () => null,
+    urlEntrarOidc: (retorno: string) =>
+      `/api/sessao/oidc/entrar?retorno=${encodeURIComponent(retorno)}`,
+    sairOidc: async () => null,
     listarPedidos: async () => lista,
     detalharPedido: async () => detalhe(),
     consultarHistorico: async () => ({ pedidoId: ID_PEDIDO, eventos: [], proximoCursor: null }),

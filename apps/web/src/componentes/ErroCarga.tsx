@@ -10,7 +10,7 @@ export function ErroCarga({ erro, onTentarDeNovo }: { erro: ErroApi; onTentarDeN
     return (
       <div role="alert" className="estado estado-erro">
         <p>Sua sessão expirou ou não foi aberta no servidor.</p>
-        <Button className="botao-primario" onPress={sair}>
+        <Button className="btn btn-primary" onPress={sair}>
           Entrar novamente
         </Button>
       </div>
@@ -33,7 +33,7 @@ export function ErroCarga({ erro, onTentarDeNovo }: { erro: ErroApi; onTentarDeN
   return (
     <div role="alert" className="estado estado-erro">
       <p>Não foi possível carregar os dados. Tente de novo.</p>
-      <Button className="botao-secundario" onPress={onTentarDeNovo}>
+      <Button className="btn btn-outline-secondary" onPress={onTentarDeNovo}>
         Tentar de novo
       </Button>
     </div>
