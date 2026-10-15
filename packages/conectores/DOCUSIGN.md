@@ -7,11 +7,11 @@ explícita por `criarConectorDocusignDoAmbiente`. Testes usam fixtures HTTP, ser
 HTTP local com sockets reais e o worker sobre PostgreSQL descartável. Nenhuma
 operação foi executada em uma conta DocuSign real.
 
-O worker em `apps/worker/src/index.ts` ainda monta exclusivamente
-`criarCatalogoSimulado`. O schema global em
-`packages/contratos/src/configuracao.ts` aceita somente escrita externa desligada.
-Integrar o novo conector ao catálogo e liberar escrita por sistema requer trabalho
-de backend/configuração da Sprint 1. Este transporte não altera esses gates.
+O worker monta o conector real quando há configuração `GIA_DOCUSIGN_*` (ver
+[Integração no worker](#integração-no-worker)); sem ela, nada muda. O schema
+global em `packages/contratos/src/configuracao.ts` (na `main`) aceita somente
+escrita externa desligada: liberar escrita por sistema é do PR #16 (DEV-280).
+Este transporte não altera esses gates.
 
 ## Fronteira e autenticação
 
@@ -84,6 +84,31 @@ sistema, operação, pedido, correlação, resultado e referência externa. Resu
 incerto também gera `operacaoEncaminhadaParaReconciliacao`. Os testes em
 `apps/worker/src/docusign-integracao.test.ts` verificam os eventos no PostgreSQL,
 ausência de segredos na evidência e ausência de reenvio ao processar outro lote.
+
+## Integração no worker
+
+Complemento da DEV-283 (Dev Opus), empilhado sobre este PR:
+
+- `apps/worker/src/docusign.ts` monta o conector real com os timeouts da política
+  do worker (`montarDocusignReal`) só quando alguma `GIA_DOCUSIGN_*` está
+  presente. Configuração pela metade impede o worker de subir (`iniciar` valida
+  no arranque; o erro cita só nomes). A chave é lida do arquivo antes de abrir o
+  banco.
+- `comDocusignReal` roteia pelo modo da operação: `simulado` → simulador;
+  `real` → conector real; `real` sem conector real → `semEfeito`
+  `DOCUSIGN_REAL_INDISPONIVEL`, **sem chamar nada e nunca o simulador** (regra 9).
+  Os gates do domínio (regra 8) e do transporte (`GIA_DOCUSIGN_ESCRITA_HABILITADA`)
+  continuam valendo.
+- `criarConectorDocusignDoAmbiente(env, opcoes)` aceita os timeouts do motor e
+  usa o prazo do transporte no `testarConexao` (OAuth + userinfo não cabem nos
+  5 s padrão de conexão).
+- Homologação somente leitura: `pnpm --filter @gia/conectores docusign:verificar`
+  (configuração, chave, token JWT e userinfo; não lê nem altera usuários).
+  Contra o OAuth de demo com IDs fictícios responde `DOCUSIGN_JWT_RECUSADO`.
+
+Quando o PR #16 (gates e registro de conectores reais) entrar, o roteamento de
+`comDocusignReal` é substituído por registrar `montarDocusignReal` em
+`apps/worker/src/reais.ts` (`conectoresReaisDoAmbiente`).
 
 ## Dependências para aceite em produção
 
