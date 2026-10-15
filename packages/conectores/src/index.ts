@@ -32,3 +32,7 @@ export * from './transportes/configuracao-ad.js';
 export * from './transportes/ldap.js';
 export * from './transportes/ad-ldap.js';
 export * from './transportes/ad-real.js';
+
+export * from './softexpert/configuracao.js';
+export * from './softexpert/cliente.js';
+export * from './softexpert/real.js';
