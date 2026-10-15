@@ -1,12 +1,18 @@
 import { pathToFileURL } from 'node:url';
+import { ErroConfiguracao, resolverSegredosDeArquivo } from '@gia/contratos';
 import { criarBanco, urlDoBanco } from './postgres/conexao.js';
 import { migrarParaUltima } from './postgres/migrador.js';
 
-/** `pnpm --filter @gia/persistencia migrar`: aplica as migrações pendentes em `GIA_DATABASE_URL`. */
+/**
+ * `pnpm --filter @gia/persistencia migrar`: aplica as migrações pendentes em
+ * `GIA_DATABASE_URL`. Como API e worker, aceita a URL por arquivo do cofre
+ * (`GIA_DATABASE_URL_ARQUIVO`) e, em produção, recusa URL com senha por valor.
+ */
 export async function migrar(
   env: Readonly<Record<string, string | undefined>> = process.env,
 ): Promise<readonly string[]> {
-  const db = criarBanco({ url: urlDoBanco(env) });
+  const resolvido = await resolverSegredosDeArquivo(env);
+  const db = criarBanco({ url: urlDoBanco(resolvido) });
   try {
     return await migrarParaUltima(db);
   } finally {
@@ -24,7 +30,14 @@ if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.a
       );
     },
     (erro: unknown) => {
-      console.error(erro instanceof Error ? erro.message : 'falha ao migrar');
+      // ErroConfiguracao e urlDoBanco só citam nomes de variáveis; erros do driver
+      // podem trazer a URL, então não são impressos.
+      console.error(
+        erro instanceof ErroConfiguracao ||
+          (erro instanceof Error && erro.message.startsWith('Configuração inválida'))
+          ? erro.message
+          : 'falha ao migrar',
+      );
       process.exitCode = 1;
     },
   );

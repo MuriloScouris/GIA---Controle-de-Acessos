@@ -32,7 +32,13 @@ describe('@gia/persistencia', () => {
     const pkg = JSON.parse(
       readFileSync(join(import.meta.dirname, '..', 'package.json'), 'utf8'),
     ) as { dependencies: Record<string, string> };
-    expect(Object.keys(pkg.dependencies).sort()).toEqual(['@gia/dominio', 'kysely', 'pg']);
+    // Pacotes internos (`@gia/*`) não acessam banco; contratos traz o resolvedor de segredos.
+    expect(Object.keys(pkg.dependencies).sort()).toEqual([
+      '@gia/contratos',
+      '@gia/dominio',
+      'kysely',
+      'pg',
+    ]);
   });
 
   it('URL do banco ausente: o erro cita só o nome da variável', () => {

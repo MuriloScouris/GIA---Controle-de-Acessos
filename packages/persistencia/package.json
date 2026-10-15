@@ -21,6 +21,7 @@
     "migrar": "node dist/migrar.js"
   },
   "dependencies": {
+    "@gia/contratos": "workspace:*",
     "@gia/dominio": "workspace:*",
     "kysely": "catalog:",
     "pg": "catalog:"

@@ -466,6 +466,9 @@ importers:
 
   packages/persistencia:
     dependencies:
+      '@gia/contratos':
+        specifier: workspace:*
+        version: link:../contratos
       '@gia/dominio':
         specifier: workspace:*
         version: link:../dominio
