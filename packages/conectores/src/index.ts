@@ -41,3 +41,7 @@ export * from './transportes/ad-real.js';
 export * from './softexpert/configuracao.js';
 export * from './softexpert/cliente.js';
 export * from './softexpert/real.js';
+
+export * from './m365/configuracao.js';
+export * from './m365/cliente.js';
+export * from './m365/real.js';
