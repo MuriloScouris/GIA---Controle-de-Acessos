@@ -96,7 +96,6 @@ export function montarConectores(
   };
 }
 
-
 function descreverEscrita(gates: GatesDeEscrita): string {
   if (!gates.escritaExterna) return 'escrita externa desligada';
   const liberadas = gates.liberadas.length === 0 ? 'nenhuma liberada' : gates.liberadas.join(', ');
