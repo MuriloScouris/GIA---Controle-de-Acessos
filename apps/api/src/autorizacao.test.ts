@@ -97,11 +97,13 @@ describe('usuário não autenticado', () => {
     expect(res.headers['cache-control']).toBe('no-store');
   });
 
-  it('em produção não há login simulado: só o OIDC (futuro) abre sessão', async () => {
-    const api = montarApi({ ambiente: 'producao' });
+  it('em produção não há login simulado: só o OIDC abre sessão', async () => {
+    const api = montarApi({ ambiente: 'producao', autenticacao: { modo: 'indisponivel' } });
     const res = await api.post(null, '/sessao/simulada', { papel: 'administradorGia' });
     expect(res.statusCode).toBe(404);
     expect((await api.get(null, '/pedidos')).statusCode).toBe(401);
+    // Pedir a sessão simulada em produção nem monta a API.
+    expect(() => montarApi({ ambiente: 'producao' })).toThrow(/não é permitida em produção/);
   });
 });
 

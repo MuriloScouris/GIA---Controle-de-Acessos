@@ -3,6 +3,7 @@ import { ErroConfiguracao, carregarConfiguracaoApi, type VariaveisAmbiente } fro
 import { criarBanco, criarPersistenciaPostgres, VARIAVEL_URL_BANCO } from '@gia/persistencia';
 import type { FastifyInstance } from 'fastify';
 import { criarApp } from './app.js';
+import { autenticacaoDoAmbiente } from './sessao/autenticacao-ambiente.js';
 
 /**
  * Monta a API a partir do ambiente. Com `GIA_DATABASE_URL`, a persistência é
@@ -12,10 +13,17 @@ import { criarApp } from './app.js';
  */
 export function criarAppDoAmbiente(env: VariaveisAmbiente = process.env): FastifyInstance {
   const config = carregarConfiguracaoApi(env);
+  const autenticacao = autenticacaoDoAmbiente(env, config.ambiente);
   const url = env[VARIAVEL_URL_BANCO];
-  if (url === undefined || url.trim() === '') return criarApp({ ambiente: config.ambiente });
+  if (url === undefined || url.trim() === '') {
+    return criarApp({ ambiente: config.ambiente, autenticacao });
+  }
   const db = criarBanco({ url });
-  const app = criarApp({ ambiente: config.ambiente, persistencia: criarPersistenciaPostgres(db) });
+  const app = criarApp({
+    ambiente: config.ambiente,
+    autenticacao,
+    persistencia: criarPersistenciaPostgres(db),
+  });
   app.addHook('onClose', async () => {
     await db.destroy();
   });
