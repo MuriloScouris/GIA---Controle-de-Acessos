@@ -135,6 +135,7 @@ export function criarApiFalsa(sobrescritas: Partial<ClienteApi> = {}): Falsa {
     encerrarSessao: async () => undefined,
     listarPedidos: async () => lista,
     detalharPedido: async () => detalhe(),
+    consultarHistorico: async () => ({ pedidoId: ID_PEDIDO, eventos: [], proximoCursor: null }),
     importarDoJira: async () => importacao(),
     executarComando: async () => ({ ok: true, status: 'aprovado', versao: 4, operacaoId: null }),
   };

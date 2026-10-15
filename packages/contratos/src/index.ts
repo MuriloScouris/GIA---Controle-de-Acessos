@@ -18,3 +18,5 @@ export * from './onboarding.js';
 export * from './gates.js';
 export * from './segredos.js';
 export * from './observabilidade.js';
+
+export * from './historico.js';

@@ -1,5 +1,5 @@
 {
   "extends": "../tsconfig.base.json",
   "compilerOptions": { "noEmit": true },
-  "include": ["e2e"]
+  "include": ["e2e", "browser", "playwright.config.ts"]
 }

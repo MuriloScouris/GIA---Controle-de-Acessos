@@ -1,5 +1,6 @@
 import {
   listaPedidosSchema,
+  historicoPedidoSchema,
   pedidoDetalheSchema,
   respostaErroSchema,
   respostaSucessoSchema,
@@ -8,6 +9,7 @@ import {
   sessaoRespostaSchema,
   type Comando,
   type ListaPedidos,
+  type HistoricoPedido,
   type PapelHumano,
   type PedidoDetalhe,
   type RespostaSucesso,
@@ -116,6 +118,12 @@ export function criarClienteApi(baseUrl = '', fetcher: Fetcher = (u, i) => fetch
     detalharPedido: (pedidoId: string): Promise<PedidoDetalhe> =>
       obter(`/pedidos/${encodeURIComponent(pedidoId)}`, (d) => pedidoDetalheSchema.parse(d)),
 
+    consultarHistorico: (pedidoId: string, cursor?: string): Promise<HistoricoPedido> =>
+      obter(
+        `/pedidos/${encodeURIComponent(pedidoId)}/historico${cursor === undefined ? '' : `?cursor=${encodeURIComponent(cursor)}`}`,
+        (d) => historicoPedidoSchema.parse(d),
+      ),
+
     importarDoJira: (): Promise<ResultadoImportacao> =>
       enviar(
         '/importacoes/jira',
@@ -125,17 +133,35 @@ export function criarClienteApi(baseUrl = '', fetcher: Fetcher = (u, i) => fetch
       ),
 
     /** O ator vem da sessão no servidor; o comando leva só o pedido, a versão vista e os dados. */
-    executarComando: (
+    executarComando: async (
       pedidoId: string,
       versaoEsperada: number,
       comando: ComandoDoPedido,
-    ): Promise<RespostaSucesso> =>
-      enviar(
-        `/pedidos/${encodeURIComponent(pedidoId)}/comandos`,
-        { ...comando, pedidoId, versaoEsperada },
-        (d) => respostaSucessoSchema.parse(d),
-        'Não foi possível executar a ação',
-      ),
+    ): Promise<RespostaSucesso> => {
+      try {
+        return await enviar(
+          `/pedidos/${encodeURIComponent(pedidoId)}/comandos`,
+          { ...comando, pedidoId, versaoEsperada },
+          (d) => respostaSucessoSchema.parse(d),
+          'Não foi possível executar a ação',
+        );
+      } catch (erro) {
+        // A API pode ter confirmado a transação antes de perder a resposta.
+        if (
+          erro instanceof ErroApi &&
+          (erro.status === undefined ||
+            erro.status >= 500 ||
+            (erro.status >= 200 && erro.status < 300))
+        ) {
+          throw new ErroApi(
+            'Não foi possível confirmar o resultado da ação. Confira o pedido antes de tentar novamente.',
+            erro.status,
+            'RESULTADO_DESCONHECIDO',
+          );
+        }
+        throw erro;
+      }
+    },
   };
 }
 

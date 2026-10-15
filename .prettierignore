@@ -5,3 +5,5 @@ coverage
 pnpm-lock.yaml
 .maestri
 docs
+test-results
+playwright-report

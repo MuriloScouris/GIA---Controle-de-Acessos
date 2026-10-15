@@ -10,6 +10,7 @@ import { DialogoConfirmacao } from '../componentes/DialogoConfirmacao.js';
 import { ErroCarga } from '../componentes/ErroCarga.js';
 import { IconeChaveQuadrada } from '../componentes/Icones.js';
 import { LinhaDoTempoPedido } from '../componentes/LinhaDoTempoPedido.js';
+import { HistoricoPedido } from '../componentes/HistoricoPedido.js';
 import { SeloStatus, tomDoStatusItem, tomDoStatusPedido } from '../componentes/SeloStatus.js';
 import { podeFazer } from '../permissoes.js';
 import {
@@ -242,7 +243,10 @@ function TelaPedido({ pedidoId }: { pedidoId: string }) {
       );
       recarregar();
     } catch (erro) {
-      if (erro instanceof ErroApi && erro.codigo === 'CONFLITO_DE_VERSAO') {
+      if (
+        erro instanceof ErroApi &&
+        (erro.codigo === 'CONFLITO_DE_VERSAO' || erro.codigo === 'RESULTADO_DESCONHECIDO')
+      ) {
         setDialogo(null);
         setConflito(erro.message);
         recarregar();
@@ -540,7 +544,11 @@ function TelaPedido({ pedidoId }: { pedidoId: string }) {
         extra="eventos relacionados a este pedido"
         semPadding
       >
-        <LinhaDoTempoPedido detalhe={detalhe} />
+        {permitido('consultarAuditoria') ? (
+          <HistoricoPedido pedidoId={detalhe.id} />
+        ) : (
+          <LinhaDoTempoPedido detalhe={detalhe} />
+        )}
       </Secao>
 
       <DialogoConfirmacao

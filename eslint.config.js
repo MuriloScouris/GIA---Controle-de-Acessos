@@ -5,7 +5,15 @@ import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
   {
-    ignores: ['**/dist/**', '**/node_modules/**', '**/.turbo/**', '**/coverage/**', '.maestri/**'],
+    ignores: [
+      '**/dist/**',
+      '**/node_modules/**',
+      '**/.turbo/**',
+      '**/coverage/**',
+      '**/playwright-report/**',
+      '**/test-results/**',
+      '.maestri/**',
+    ],
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,

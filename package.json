@@ -13,6 +13,7 @@
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
+    "test:e2e": "turbo run build && pnpm --filter @gia/tests test:browser",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm build"

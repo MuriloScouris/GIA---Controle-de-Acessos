@@ -148,3 +148,13 @@ Gates de escrita externa, segredos em arquivo do cofre, saúde e prontidão,
 logs estruturados com correlação, métricas, smoke test pós-deploy e rollback:
 [runbook de produção](docs/operacao/producao.md). Produção ainda depende de
 login real (OIDC) e dos conectores reais registrados no worker.
+
+## Validação da aba Onboarding (DEV-286)
+
+`pnpm test:e2e` compila a SPA e testa no Chromium o fluxo com API/worker,
+PostgreSQL descartável e cinco conectores simulados. Exige `GIA_DATABASE_URL_TESTE`
+e `pnpm --filter @gia/tests exec playwright install chromium`.
+O CI também executa esse gate. Histórico persistido está disponível aos papéis
+de auditoria; respostas perdidas de comandos exigem releitura, sem repetição automática.
+Dependências dos PRs #12–#15, bloqueios reais e checklists de go-live/pós-deploy
+estão no [registro de validação](docs/validacao/dev-286-onboarding.md).
