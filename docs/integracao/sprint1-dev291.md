@@ -30,6 +30,16 @@ node scripts/verificar-integracao-sprint1.mjs --detalhe  # lista cada linha ause
 O verificador **não usa os merges publicados nem as resoluções deles**; parte só
 dos commits de origem de cada PR:
 
+0. **Hash dos arquivos declarados:** todo arquivo declarado como exceção tem o
+   hash do blob git fixado em `blobs` no manifesto. Isso vale para substituição,
+   ajuste ou conflito, inclusive `apps/api/src/index.ts` e
+   `apps/worker/src/index.ts`. Declarar um arquivo não libera conteúdo novo
+   nele: um desvio como `GIA_BACKDOOR=1 -> sessão simulada` falha com saída 1.
+   Este passo não precisa das refs dos PRs (`--somente-blobs`). Mudança
+   legítima exige regravar o hash (`--gravar-blobs`), e o diff do manifesto
+   mostra o que mudou para a revisão. O teste
+   `tests/e2e/verificador-integracao.test.ts` injeta esse desvio, num
+   repositório isolado e no real, e confirma a falha.
 1. **Fixação:** o head de cada PR no GitHub ainda é o integrado. Se um PR andar,
    o verificador falha e pede reintegração.
 2. **Preservação:** toda linha que cada PR adiciona (contra a própria base) tem
@@ -123,6 +133,13 @@ cliente e o `docusign:verificar`.
    descrevem o estado real. O OIDC e os conectores existem, sem validação
    real. A tabela inclui `GIA_<SISTEMA>_MODO`, `GIA_OIDC_*` e
    `GIA_AUTH_SIMULADA`.
+
+## Itens médios da revisão
+
+Os 10 itens de severidade média da 1ª rodada estão registrados, com status
+`pendente`, em
+[`docs/operacao/pendencias-medias-sprint1.md`](../operacao/pendencias-medias-sprint1.md).
+Não bloqueiam o merge técnico, mas bloqueiam a liberação em produção.
 
 ## Validação (local, 2026-10-15)
 

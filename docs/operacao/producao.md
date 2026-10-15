@@ -173,3 +173,6 @@ Nada disso foi validado em ambiente real. Continua bloqueando produção:
 - **Decisões de produto pendentes:** entrega da senha inicial e planos
   alternativos de licença M365.
 - **UI:** a faixa "Ambiente com dados de exemplo" é fixa.
+- **Itens médios da revisão do PR #25** (autorização OIDC por nome de grupo,
+  prazos de AD/HTTP/DocuSign, TLS, `/saude/pronta`, limites e testes do OIDC):
+  ver [pendencias-medias-sprint1.md](pendencias-medias-sprint1.md).
