@@ -21,7 +21,8 @@
     "@gia/dominio": "workspace:*",
     "@gia/persistencia": "workspace:*",
     "@gia/documentos": "workspace:*",
-    "fastify": "catalog:"
+    "fastify": "catalog:",
+    "jose": "catalog:"
   },
   "devDependencies": {
     "@types/node": "catalog:",
