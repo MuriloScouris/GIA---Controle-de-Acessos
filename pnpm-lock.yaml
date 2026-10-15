@@ -277,6 +277,9 @@ importers:
 
   apps/api:
     dependencies:
+      '@gia/conectores':
+        specifier: workspace:*
+        version: link:../../packages/conectores
       '@gia/contratos':
         specifier: workspace:*
         version: link:../../packages/contratos

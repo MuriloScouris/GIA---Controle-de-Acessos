@@ -1,6 +1,7 @@
 import { pathToFileURL } from 'node:url';
 import { ErroConfiguracao, carregarConfiguracaoApi, type VariaveisAmbiente } from '@gia/contratos';
 import { criarBanco, criarPersistenciaPostgres, VARIAVEL_URL_BANCO } from '@gia/persistencia';
+import { criarJiraDoAmbiente } from '@gia/conectores';
 import type { FastifyInstance } from 'fastify';
 import { criarApp } from './app.js';
 
@@ -12,10 +13,17 @@ import { criarApp } from './app.js';
  */
 export function criarAppDoAmbiente(env: VariaveisAmbiente = process.env): FastifyInstance {
   const config = carregarConfiguracaoApi(env);
+  const jira = criarJiraDoAmbiente(env);
+  const opcoesJira = jira === null ? {} : { fonteJira: jira.origem };
   const url = env[VARIAVEL_URL_BANCO];
-  if (url === undefined || url.trim() === '') return criarApp({ ambiente: config.ambiente });
+  if (url === undefined || url.trim() === '')
+    return criarApp({ ambiente: config.ambiente, ...opcoesJira });
   const db = criarBanco({ url });
-  const app = criarApp({ ambiente: config.ambiente, persistencia: criarPersistenciaPostgres(db) });
+  const app = criarApp({
+    ambiente: config.ambiente,
+    persistencia: criarPersistenciaPostgres(db),
+    ...opcoesJira,
+  });
   app.addHook('onClose', async () => {
     await db.destroy();
   });

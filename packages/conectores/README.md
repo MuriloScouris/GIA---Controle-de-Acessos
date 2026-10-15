@@ -85,6 +85,13 @@ O transporte DocuSign eSignature REST est? implementado em `src/docusign/`, com 
 
 Os demais transportes reais (Microsoft Graph, SOAP, REST do Jira) dependem de credenciais e de acesso aos ambientes. Ao implement?-los, cada transporte deve:
 
+O transporte REST do Jira Cloud está em `src/jira/`, com configuração opt-in,
+origem por cursor e destino com escrita desligada por padrão. Veja o
+[runbook DEV-285](../../docs/integracoes/jira-dev-285.md), incluindo bloqueios reais
+de ativação e validação produtiva pendente.
+
+Os demais transportes reais (LDAPS, Microsoft Graph, eSignature REST, SOAP) ainda
+dependem de implementação, credenciais do cofre e acesso aos ambientes. Cada transporte deve:
 
 - lançar `ErroFornecedor` com o tipo correto (`timeout`, `respostaPerdida`, `conexaoRecusada`, `limiteDeTaxa`, `recusado`);
 - tratar 2xx com erro interno como `recusado`;

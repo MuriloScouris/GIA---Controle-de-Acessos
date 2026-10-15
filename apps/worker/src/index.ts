@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 import type { VariaveisAmbiente } from '@gia/contratos';
-import { criarCatalogoSimulado, type CatalogoSimulado } from '@gia/conectores';
+import { criarCatalogoSimulado, criarJiraDoAmbiente, type CatalogoSimulado } from '@gia/conectores';
 import type { PoliticaExecucao } from '@gia/dominio';
 import { criarBanco, criarPersistenciaPostgres, urlDoBanco } from '@gia/persistencia';
 import { executarCiclo } from './ciclo.js';
@@ -35,11 +35,36 @@ export type {
  * Conectores do worker com os timeouts da política configurada (ADR-0004):
  * conexão e chamada valem para todos os sistemas, não os defaults do motor.
  */
-export function montarConectores(politica: PoliticaExecucao): CatalogoSimulado {
-  return criarCatalogoSimulado({
+export function montarConectores(
+  politica: PoliticaExecucao,
+  env: VariaveisAmbiente = {},
+): CatalogoSimulado {
+  const catalogo = criarCatalogoSimulado({
     timeoutConexaoMs: politica.timeoutConexaoMs,
     timeoutChamadaMs: politica.timeoutChamadaMs,
   });
+  const jira = criarJiraDoAmbiente(
+    env,
+    {},
+    { timeoutConexaoMs: politica.timeoutConexaoMs, timeoutChamadaMs: politica.timeoutChamadaMs },
+  );
+  if (jira === null) return catalogo;
+  const simulado = catalogo.conectores.jira;
+  const escolher = (modo: string) => (modo === 'real' ? jira.destino : simulado);
+  return {
+    ...catalogo,
+    jiraOrigem: jira.origem,
+    conectores: {
+      ...catalogo.conectores,
+      jira: {
+        testarConexao: () => jira.destino.testarConexao(),
+        validar: (ctx) => escolher(ctx.modo).validar(ctx),
+        conferirExistencia: (ctx) => escolher(ctx.modo).conferirExistencia(ctx),
+        provisionar: (ctx) => escolher(ctx.modo).provisionar(ctx),
+        revogar: (ctx) => escolher(ctx.modo).revogar(ctx),
+      },
+    },
+  };
 }
 
 /** Valida a configuração e descreve como o worker vai rodar. */
@@ -60,7 +85,7 @@ export async function executarWorker(
   try {
     const executor = criarExecutor({
       persistencia: criarPersistenciaPostgres(db),
-      conectores: montarConectores(politica).conectores,
+      conectores: montarConectores(politica, env).conectores,
       politica,
       limitePorSistema: config.limitePorSistema,
       workerId: config.workerId,
