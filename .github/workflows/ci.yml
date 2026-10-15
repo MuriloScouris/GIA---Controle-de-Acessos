@@ -39,6 +39,34 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # Testes do conector AD usam um Active Directory real (Samba AD DC) por LDAPS,
+      # efêmero do job. A senha do administrador é gerada aqui e nunca sai do runner.
+      - name: Subir Active Directory de teste (Samba AD DC)
+        run: |
+          pasta="$RUNNER_TEMP/ad"
+          mkdir -p "$pasta"
+          senha="Gia-$(openssl rand -hex 12)-9a"
+          echo "::add-mask::$senha"
+          printf %s "$senha" > "$pasta/senha"
+          docker run -d --name gia-ad-teste --hostname dc1 -p 127.0.0.1:6360:636 \
+            -e REALM=GIA.TESTE.LOCAL -e DOMAIN=GIATESTE -e ADMINPASS="$senha" \
+            smblds/smblds@sha256:2fa04e4a744c80057540ca2834a3550cbfa7c456821caf3f60cf5898c9051d23
+          for _ in $(seq 1 90); do
+            if docker exec gia-ad-teste sh /healthcheck.sh >/dev/null 2>&1 \
+              && docker cp gia-ad-teste:/var/lib/samba/private/tls/ca.pem "$pasta/ca.pem" 2>/dev/null; then
+              break
+            fi
+            sleep 2
+          done
+          test -s "$pasta/ca.pem"
+          {
+            echo "GIA_AD_TESTE_URL=ldaps://127.0.0.1:6360"
+            echo "GIA_AD_TESTE_BIND_DN=CN=Administrator,CN=Users,DC=gia,DC=teste,DC=local"
+            echo "GIA_AD_TESTE_SENHA_ARQUIVO=$pasta/senha"
+            echo "GIA_AD_TESTE_BASE_DN=DC=gia,DC=teste,DC=local"
+            echo "GIA_AD_TESTE_CA_ARQUIVO=$pasta/ca.pem"
+            echo "GIA_AD_TESTE_TLS_NOME_SERVIDOR=dc1.gia.teste.local"
+          } >> "$GITHUB_ENV"
       - run: pnpm format:check
       - run: pnpm lint
       - run: pnpm typecheck
