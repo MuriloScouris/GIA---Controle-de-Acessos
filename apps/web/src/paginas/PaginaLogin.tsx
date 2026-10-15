@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Button } from 'react-aria-components';
-import { Navigate } from 'react-router';
+import { Navigate, useSearchParams } from 'react-router';
 import { useApi } from '../api/ApiProvider.js';
 import { IconeEscudoCheck } from '../componentes/Icones.js';
 import { MarcaGia } from '../componentes/MarcaGia.js';
@@ -19,13 +19,36 @@ function IconeMicrosoft() {
   );
 }
 
+/** Mensagens dos códigos que o servidor devolve em `/login?erro=` (o texto do provedor nunca chega aqui). */
+const MENSAGENS_DE_ERRO: Readonly<Record<string, string>> = {
+  LOGIN_RECUSADO_PELO_PROVEDOR:
+    'O login foi cancelado ou recusado pela Microsoft. Tente entrar de novo.',
+  LOGIN_ESTADO_INVALIDO:
+    'O login expirou ou foi iniciado em outra aba. Tente entrar de novo por aqui.',
+  LOGIN_TROCA_FALHOU:
+    'Não foi possível confirmar sua identidade com a Microsoft. Tente de novo; se persistir, avise o suporte.',
+  LOGIN_TOKEN_INVALIDO:
+    'Não foi possível confirmar sua identidade com a Microsoft. Tente de novo; se persistir, avise o suporte.',
+  LOGIN_INDISPONIVEL: 'O login está indisponível no momento. Tente de novo em alguns minutos.',
+};
+
+/** Só caminho local volta depois do login (o servidor revalida). */
+function retornoLocal(valor: string | null): string {
+  if (valor === null || !valor.startsWith('/')) return '/';
+  // `//host` e `/\host` mudariam de origem no navegador.
+  return valor.startsWith('//') || valor.startsWith('/\\') ? '/' : valor;
+}
+
 /**
- * Tela de login. A sessão é SIMULADA e temporária: não há Entra ID/OIDC nesta fase.
- * "Entrar" abre a escolha de um perfil de demonstração, que define a sessão local
- * (ver `sessao/Sessao.tsx`); a integração real substituirá este fluxo.
+ * Tela de login. Quem decide o login é o servidor (`GET /sessao/modo`):
+ * em produção, "Entrar com Microsoft" (Entra ID/OIDC); só em desenvolvimento,
+ * os perfis de demonstração da sessão simulada.
  */
 export function PaginaLogin() {
-  const { perfil, entrar } = useSessao();
+  const { modo, perfil, entrar } = useSessao();
+  const [parametros] = useSearchParams();
+  const codigoErro = parametros.get('erro');
+  const retorno = retornoLocal(parametros.get('retorno'));
   const api = useApi();
   const [escolhendo, setEscolhendo] = useState(false);
   const [abrindo, setAbrindo] = useState(false);
@@ -46,7 +69,7 @@ export function PaginaLogin() {
     }
   }
 
-  if (perfil) return <Navigate to="/" replace />;
+  if (perfil) return <Navigate to={retorno} replace />;
 
   return (
     <div className="login">
@@ -105,54 +128,117 @@ export function PaginaLogin() {
               </p>
             </header>
 
-            {escolhendo ? (
-              <section aria-labelledby="titulo-perfis" className="login-perfis">
-                <h2 id="titulo-perfis">Escolha um perfil de demonstração</h2>
-                <ul>
-                  {PERFIS_DEMO.map((opcao) => (
-                    <li key={opcao.id}>
-                      <Button
-                        className="login-perfil"
-                        isDisabled={abrindo}
-                        onPress={() => void escolher(opcao)}
-                      >
-                        <span className="login-perfil-nome">{opcao.nome}</span>
-                        <span className="login-perfil-descricao">{opcao.descricao}</span>
-                      </Button>
-                    </li>
-                  ))}
-                </ul>
-                {erro && (
-                  <p role="alert" className="alert alert-danger">
-                    {erro}
-                  </p>
-                )}
-                <Button className="btn btn-link" onPress={() => setEscolhendo(false)}>
-                  Voltar
-                </Button>
+            {codigoErro === 'ACESSO_NEGADO' ? (
+              <section
+                role="alert"
+                aria-labelledby="titulo-acesso-negado"
+                className="login-nota login-acesso-negado"
+              >
+                <h2 id="titulo-acesso-negado" className="login-nota-titulo">
+                  <IconeEscudoCheck />
+                  Acesso negado
+                </h2>
+                <p className="login-nota-texto">
+                  Sua conta Microsoft foi reconhecida, mas não tem papel no {NOME_PRODUTO}. Peça a
+                  liberação ao administrador do {NOME_PRODUTO}; nenhuma sessão foi aberta.
+                </p>
               </section>
             ) : (
-              <div className="login-entrada">
-                <Button className="login-botao" onPress={() => setEscolhendo(true)}>
-                  <IconeMicrosoft />
-                  <span>Entrar</span>
-                </Button>
-                <p className="login-divisor">
-                  <span>Segurança corporativa</span>
+              codigoErro !== null && (
+                <p role="alert" className="alert alert-danger">
+                  {MENSAGENS_DE_ERRO[codigoErro] ?? 'Não foi possível entrar. Tente de novo.'}
+                </p>
+              )
+            )}
+
+            {modo === 'carregando' && (
+              <p role="status" className="login-descricao">
+                Carregando…
+              </p>
+            )}
+
+            {modo === 'oidc' && (
+              <>
+                <div className="login-entrada">
+                  <a className="login-botao" href={api.urlEntrarOidc(retorno)}>
+                    <IconeMicrosoft />
+                    <span>Entrar com Microsoft</span>
+                  </a>
+                  <p className="login-divisor">
+                    <span>Segurança corporativa</span>
+                  </p>
+                </div>
+                <div className="login-nota">
+                  <p className="login-nota-titulo">
+                    <IconeEscudoCheck />
+                    Acesso restrito
+                  </p>
+                  <p className="login-nota-texto">
+                    Use sua conta corporativa. O acesso é liberado pelo administrador do{' '}
+                    {NOME_PRODUTO} no Entra ID; sem papel liberado, o login conclui e o{' '}
+                    {NOME_PRODUTO} avisa.
+                  </p>
+                </div>
+              </>
+            )}
+
+            {modo === 'indisponivel' && (
+              <p role="alert" className="alert alert-warning">
+                O login não está disponível neste ambiente. Avise o suporte do {NOME_PRODUTO}.
+              </p>
+            )}
+
+            {modo === 'simulada' &&
+              (escolhendo ? (
+                <section aria-labelledby="titulo-perfis" className="login-perfis">
+                  <h2 id="titulo-perfis">Escolha um perfil de demonstração</h2>
+                  <ul>
+                    {PERFIS_DEMO.map((opcao) => (
+                      <li key={opcao.id}>
+                        <Button
+                          className="login-perfil"
+                          isDisabled={abrindo}
+                          onPress={() => void escolher(opcao)}
+                        >
+                          <span className="login-perfil-nome">{opcao.nome}</span>
+                          <span className="login-perfil-descricao">{opcao.descricao}</span>
+                        </Button>
+                      </li>
+                    ))}
+                  </ul>
+                  {erro && (
+                    <p role="alert" className="alert alert-danger">
+                      {erro}
+                    </p>
+                  )}
+                  <Button className="btn btn-link" onPress={() => setEscolhendo(false)}>
+                    Voltar
+                  </Button>
+                </section>
+              ) : (
+                <div className="login-entrada">
+                  <Button className="login-botao" onPress={() => setEscolhendo(true)}>
+                    <IconeMicrosoft />
+                    <span>Entrar</span>
+                  </Button>
+                  <p className="login-divisor">
+                    <span>Segurança corporativa</span>
+                  </p>
+                </div>
+              ))}
+
+            {modo === 'simulada' && (
+              <div className="login-nota">
+                <p className="login-nota-titulo">
+                  <IconeEscudoCheck />
+                  Ambiente de demonstração
+                </p>
+                <p className="login-nota-texto">
+                  Sessão simulada de desenvolvimento: escolha um perfil para simular a sessão;
+                  nenhuma escrita é feita nos sistemas de destino.
                 </p>
               </div>
             )}
-
-            <div className="login-nota">
-              <p className="login-nota-titulo">
-                <IconeEscudoCheck />
-                Ambiente de demonstração
-              </p>
-              <p className="login-nota-texto">
-                O login com Entra ID ainda não está integrado. Escolha um perfil para simular a
-                sessão; nenhuma escrita é feita nos sistemas de destino.
-              </p>
-            </div>
 
             {/* Rótulos institucionais em texto, sem link: as páginas ainda não existem. */}
             <p className="login-rodape">

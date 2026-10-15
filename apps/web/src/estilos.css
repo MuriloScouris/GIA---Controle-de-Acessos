@@ -2015,6 +2015,11 @@ code {
   flex-direction: column;
   gap: 1.5rem;
 }
+/* Também usado como link ("Entrar com Microsoft" navega até a API). */
+.login-botao,
+a.login-botao:hover {
+  text-decoration: none;
+}
 .login-botao {
   display: flex;
   align-items: center;

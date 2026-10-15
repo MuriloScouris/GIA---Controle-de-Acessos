@@ -1,13 +1,8 @@
 import { Button } from 'react-aria-components';
-import { Link, Navigate, Outlet } from 'react-router';
-import {
-  IconeEscudoCheck,
-  IconeFrasco,
-  IconeSair,
-} from './componentes/Icones.js';
+import { Link, Navigate, Outlet, useLocation } from 'react-router';
+import { IconeEscudoCheck, IconeFrasco, IconeSair } from './componentes/Icones.js';
 import { MarcaGia } from './componentes/MarcaGia.js';
-import { useSessao } from './sessao/Sessao.js';
-import type { PerfilDemo } from './sessao/perfis.js';
+import { useSessao, type UsuarioSessao } from './sessao/Sessao.js';
 import { NOME_PRODUTO } from './titulo.js';
 
 function iniciais(nome: string): string {
@@ -21,7 +16,7 @@ function Operador({
   sair,
   movel = false,
 }: {
-  perfil: PerfilDemo;
+  perfil: UsuarioSessao;
   sair: () => void;
   movel?: boolean;
 }) {
@@ -42,14 +37,30 @@ function Operador({
   );
 }
 
+/** Enquanto o servidor diz como entrar e se já há sessão. */
+export function CarregandoSessao() {
+  return (
+    <main id="conteudo" className="estado estado-carregando-sessao">
+      <p role="status">Carregando sessão…</p>
+    </main>
+  );
+}
+
 /**
  * Shell das telas internas, no desenho do MainLayout + NavMenu do GIA antigo: cabeçalho branco
  * com marca, navegação horizontal e operador, e a faixa navy de contexto logo abaixo.
  */
 export function Layout() {
-  const { perfil, sair } = useSessao();
+  const { modo, perfil, sair } = useSessao();
+  const local = useLocation();
 
-  if (!perfil) return <Navigate to="/login" replace />;
+  if (modo === 'carregando') return <CarregandoSessao />;
+  if (!perfil) {
+    // Volta para onde estava depois do login (só caminho local; o servidor revalida).
+    const retorno = `${local.pathname}${local.search}`;
+    const destino = retorno === '/' ? '/login' : `/login?retorno=${encodeURIComponent(retorno)}`;
+    return <Navigate to={destino} replace />;
+  }
   return (
     <div className="app-shell">
       <a className="pular-conteudo" href="#conteudo">
