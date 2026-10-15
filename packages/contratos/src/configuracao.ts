@@ -3,20 +3,33 @@ import { z } from 'zod';
 export const PACOTE = '@gia/contratos';
 
 /**
- * Configuração de ambiente validada no arranque.
- * A escrita nos sistemas de destino nasce desligada e não pode ser ligada neste scaffold;
- * nenhum segredo faz parte do esquema.
+ * Configuração de ambiente validada no arranque. A escrita nos sistemas de
+ * destino nasce desligada (regra 8). `GIA_ESCRITA_EXTERNA=true` é só a chave
+ * mestra: nunca vale em desenvolvimento, e cada sistema/operação ainda precisa
+ * estar em `GIA_ESCRITA_LIBERADA` (ver `gates.ts`). Nenhum segredo faz parte do
+ * esquema.
  */
-export const configuracaoAmbienteSchema = z.object({
+const formatoAmbiente = {
   ambiente: z.enum(['desenvolvimento', 'teste', 'producao']).default('desenvolvimento'),
-  escritaExterna: z.literal(false).default(false),
-});
+  escritaExterna: z.boolean().default(false),
+};
+
+function semEscritaEmDesenvolvimento(c: {
+  readonly ambiente: string;
+  readonly escritaExterna: boolean;
+}): boolean {
+  return !(c.escritaExterna && c.ambiente === 'desenvolvimento');
+}
+
+export const configuracaoAmbienteSchema = z
+  .object(formatoAmbiente)
+  .refine(semEscritaEmDesenvolvimento, { path: ['escritaExterna'] });
 
 export type ConfiguracaoAmbiente = z.infer<typeof configuracaoAmbienteSchema>;
 
-export const configuracaoApiSchema = configuracaoAmbienteSchema.extend({
-  porta: z.number().int().min(1).max(65535).default(3000),
-});
+export const configuracaoApiSchema = z
+  .object({ ...formatoAmbiente, porta: z.number().int().min(1).max(65535).default(3000) })
+  .refine(semEscritaEmDesenvolvimento, { path: ['escritaExterna'] });
 
 export type ConfiguracaoApi = z.infer<typeof configuracaoApiSchema>;
 
