@@ -206,6 +206,9 @@ catalogs:
     kysely:
       specifier: ^0.29.6
       version: 0.29.6
+    ldapts:
+      specifier: ^9.2.0
+      version: 9.2.0
     pg:
       specifier: ^8.23.1
       version: 8.23.1
@@ -388,6 +391,12 @@ importers:
       '@gia/dominio':
         specifier: workspace:*
         version: link:../dominio
+      ldapts:
+        specifier: 'catalog:'
+        version: 9.2.0
+      zod:
+        specifier: 'catalog:'
+        version: 4.6.7
     devDependencies:
       '@types/node':
         specifier: 'catalog:'
@@ -1423,6 +1432,10 @@ packages:
     resolution: {integrity: sha512-hHaB8C/rfzDDtr/t8YZwxAuPJTT0zHyaPoVzcXwDYhYNAgH/4sIfVhi/XLLIY+bL/FqaIJnjATDbi8ObSELmxg==}
     engines: {node: '>=22.0.0'}
 
+  ldapts@9.2.0:
+    resolution: {integrity: sha512-5mDg3OT5fDP9DUXga9dCLW8cMW24OTOKT4pv/Qj+f2zCV3qxb+gkZLCzMAqzVTOANoycidKkYpPvkclUQU2aXw==}
+    engines: {node: '>=22'}
+
   levn@0.4.1:
     resolution: {integrity: sha512-+bT2uH4E5LGE7h/n3evcS/sQlJXCpIp6ym8OWJ5eV6+67Dsql/LaaT7qJBAt2rzfoa/5QBGBhxDix1dMt2kQKQ==}
     engines: {node: '>= 0.8.0'}
@@ -1786,6 +1799,9 @@ packages:
 
   std-env@4.3.0:
     resolution: {integrity: sha512-OtU/EgQ1kIm5KwqQpBC6ZEMXrZRui11w8zgfTWp8cdO9B8OaPsbA8bTHO2P+HNo1VlUTGMVBwPhydu6poeXiag==}
+
+  strict-event-emitter-types@2.0.0:
+    resolution: {integrity: sha512-Nk/brWYpD85WlOgzw5h173aci0Teyv8YdIAEtV+N88nDB0dLlazZyJMIsN6eo1/AR61l+p6CJTG1JIyFaoNEEA==}
 
   thread-stream@4.2.0:
     resolution: {integrity: sha512-e2zZ96wSChazBsbENf/Pcm/4swHt2cEKQ92rhUjkL9GCKiTDJIaTBenjE/m9DXi0QBmTMDkFDdOomUy20A1tDQ==}
@@ -2919,6 +2935,10 @@ snapshots:
 
   kysely@0.29.6: {}
 
+  ldapts@9.2.0:
+    dependencies:
+      strict-event-emitter-types: 2.0.0
+
   levn@0.4.1:
     dependencies:
       prelude-ls: 1.2.1
@@ -3254,6 +3274,8 @@ snapshots:
   split2@4.2.0: {}
 
   std-env@4.3.0: {}
+
+  strict-event-emitter-types@2.0.0: {}
 
   thread-stream@4.2.0:
     dependencies:
