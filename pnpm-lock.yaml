@@ -378,6 +378,9 @@ importers:
       '@gia/persistencia':
         specifier: workspace:*
         version: link:../../packages/persistencia
+      zod:
+        specifier: 'catalog:'
+        version: 4.6.7
     devDependencies:
       '@types/node':
         specifier: 'catalog:'

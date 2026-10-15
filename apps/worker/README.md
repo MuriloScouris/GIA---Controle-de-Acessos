@@ -73,6 +73,11 @@ técnico; 2 indica leituras aprovadas com homologação administrativa pendente.
 Nenhum desses códigos autoriza escrita. Configuração, códigos, checklist de
 ensaio autorizado e rollback: [DEV-289](../../docs/operacao/dev-289-preflight.md).
 
+Matriz de prontidão: `pnpm --filter @gia/worker prontidao --revisao <SHA-40> --saida <nova-matriz.json>`.
+Consolida evidências locais, sem rede nem escrita. Saída 1 mantém bloqueios;
+2 comprova somente leituras, sempre `NO_GO`. Responsáveis, decisões,
+importação por checksum e limites: [DEV-292](../../docs/operacao/dev-292-prontidao.md).
+
 `pnpm test` com `GIA_DATABASE_URL_TESTE` (PostgreSQL real; ver
 `packages/persistencia/README.md`). Cobrem execução, dependência AD → M365,
 falha transitória com backoff e retomada da etapa, falha definitiva,
