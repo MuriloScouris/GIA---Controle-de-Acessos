@@ -1,5 +1,6 @@
 import {
   comandoSchema,
+  consultaHistoricoSchema,
   importacaoJiraSchema,
   itemParamsSchema,
   loginSimuladoSchema,
@@ -19,6 +20,7 @@ import {
 } from '../aplicacao/consultas.js';
 import type { DependenciasCasosDeUso } from '../aplicacao/dependencias.js';
 import { emitirDocumento } from '../aplicacao/documento.js';
+import { consultarHistorico } from '../aplicacao/historico.js';
 import { importarChamadosJira } from '../aplicacao/importar-jira.js';
 import { PESSOAS_FICTICIAS } from '../sessao/sessoes-simuladas.js';
 import {
@@ -123,6 +125,19 @@ export function registrarRotas(
     const params = validarEntrada(pedidoParamsSchema, request.params);
     if (!params.ok) return enviarErro(reply, params.erro);
     return responder(reply, await detalharPedido(casosDeUso, params.valor.pedidoId, ctx.valor));
+  });
+
+  app.get('/pedidos/:pedidoId/historico', async (request, reply) => {
+    const ctx = contextoDaRequisicao(request, deps, { escrita: false });
+    if (!ctx.ok) return enviarErro(reply, ctx.erro);
+    const params = validarEntrada(pedidoParamsSchema, request.params);
+    if (!params.ok) return enviarErro(reply, params.erro);
+    const consulta = validarEntrada(consultaHistoricoSchema, request.query);
+    if (!consulta.ok) return enviarErro(reply, consulta.erro);
+    return responder(
+      reply,
+      await consultarHistorico(casosDeUso, params.valor.pedidoId, consulta.valor, ctx.valor),
+    );
   });
 
   app.get('/pedidos/:pedidoId/itens', async (request, reply) => {

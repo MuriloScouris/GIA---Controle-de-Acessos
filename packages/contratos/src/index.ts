@@ -15,3 +15,4 @@ export * from './comando.js';
 export * from './resposta.js';
 export * from './conector.js';
 export * from './onboarding.js';
+export * from './historico.js';

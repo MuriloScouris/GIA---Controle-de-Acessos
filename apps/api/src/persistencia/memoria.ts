@@ -148,6 +148,12 @@ function repositorios(t: Tabelas): Repositorios {
         t.eventos = anexado.valor;
       },
       porTipo: async (tipo) => t.eventos.filter((evento) => evento.tipo === tipo),
+      doPedido: async (pedidoId, { antesDe, limite }) => {
+        const eventos = t.eventos.filter((e) => e.pedidoId === pedidoId).toReversed();
+        const indice = antesDe === undefined ? -1 : eventos.findIndex((e) => e.id === antesDe);
+        if (antesDe !== undefined && indice === -1) return [];
+        return eventos.slice(indice + 1, indice + 1 + limite);
+      },
     },
     configuracao: {
       atual: async () => t.configuracao,
