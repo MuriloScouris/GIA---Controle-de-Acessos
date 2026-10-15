@@ -13,7 +13,7 @@ squash → Done.
 ## Primeira entrega: ponta a ponta simulada
 
 Tudo funciona de ponta a ponta **sem escrever em nenhum sistema real**: a
-escrita externa nasce desligada e a configuração só aceita `false` (regra 8),
+escrita externa nasce desligada e só liga com gates explícitos (regra 8),
 os conectores falam com simuladores em memória e resultado simulado nunca
 confirma acesso (regra 9).
 
@@ -137,3 +137,10 @@ Cada arquivo de teste de banco cria um PostgreSQL descartável a partir de
 
 Decisões de arquitetura em `docs/adr` (fora do repositório nesta fase) e nos
 READMEs de cada pacote.
+
+## Operação em produção
+
+Gates de escrita externa, segredos em arquivo do cofre, saúde e prontidão,
+logs estruturados com correlação, métricas, smoke test pós-deploy e rollback:
+[runbook de produção](docs/operacao/producao.md). Produção ainda depende de
+login real (OIDC) e dos conectores reais registrados no worker.
