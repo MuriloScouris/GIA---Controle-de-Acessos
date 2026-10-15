@@ -211,3 +211,79 @@ export async function criarIntegracoesDoAmbiente(
     : undefined;
   return { reais: Object.freeze(reais), jiraOrigem, diretorio, amostraJira };
 }
+
+/**
+ * Privilégio mínimo da API: ela só consulta o diretório (AD + M365, juntos) e
+ * a origem Jira; quem escreve nos destinos é o worker. A configuração de todo
+ * sistema selecionado é validada (sem rede e sem abrir segredo), mas só os
+ * segredos das leituras usadas são abertos — a chave do DocuSign e a
+ * credencial do SoftExpert nunca são lidas pela API.
+ */
+export async function criarLeiturasDoAmbiente(
+  env: VariaveisAmbiente,
+  politica: PoliticaExecucao = POLITICA_EXECUCAO_PADRAO,
+  transporte: { readonly fetch?: typeof fetch } = {},
+) {
+  const enviar = transporte.fetch ? criarFetchComPrazo(transporte.fetch) : fetchComPrazo;
+  const selecionados = carregarSelecaoIntegracoes(env);
+  if (selecionados.length && politica.timeoutChamadaMs < 200)
+    throw new ErroConfiguracao(['GIA_EXECUCAO_TIMEOUT_CHAMADA_MS']);
+  const prazo = Math.max(100, Math.min(25000, politica.timeoutChamadaMs - 100));
+  const limites = {
+    timeoutChamadaMs: politica.timeoutChamadaMs,
+    timeoutConexaoMs: politica.timeoutConexaoMs,
+  };
+  const limitar = (nome: string, padrao: number) =>
+    String(Math.min(Number(env[nome] ?? padrao), prazo));
+  // Erros de configuração continuam aparecendo no arranque da API.
+  const configAd = selecionados.includes('ad') ? carregarConfiguracaoAd(env) : undefined;
+  const configM365 = selecionados.includes('m365')
+    ? carregarConfiguracaoM365({
+        ...env,
+        GIA_M365_TIMEOUT_MS: limitar('GIA_M365_TIMEOUT_MS', 20000),
+      })
+    : undefined;
+  if (selecionados.includes('docusign'))
+    carregarConfiguracaoDocusign({
+      ...env,
+      GIA_DOCUSIGN_TIMEOUT_MS: limitar('GIA_DOCUSIGN_TIMEOUT_MS', 20000),
+    });
+  if (selecionados.includes('softexpert'))
+    carregarConfiguracaoSoftexpert({
+      ...env,
+      GIA_SOFTEXPERT_TIMEOUT_MS: limitar('GIA_SOFTEXPERT_TIMEOUT_MS', 20000),
+    });
+
+  let diretorio:
+    { buscarUsos: ReturnType<typeof criarConsultaDiretorioReal>['buscarUsos'] } | undefined;
+  // A consulta de uso precisa dos dois; com só um real, nenhum segredo é aberto.
+  if (configAd && configM365) {
+    await lerSegredoDeArquivo(configAd.arquivoSenha, 'GIA_AD_SENHA_ARQUIVO');
+    await lerSegredoM365(configM365.arquivoSegredo);
+    const ad = await criarClienteAdLdap({
+      ...configAd,
+      timeoutConexaoMs: Math.min(configAd.timeoutConexaoMs, politica.timeoutConexaoMs),
+      timeoutOperacaoMs: Math.min(configAd.timeoutOperacaoMs, prazo),
+    });
+    const consulta = criarConsultaDiretorioReal(
+      ad,
+      new ClienteGraphHttp(configM365, { fetch: enviar }),
+    );
+    diretorio = {
+      buscarUsos: (identidade) =>
+        dentroDoPrazo(politica.timeoutChamadaMs - 100, () => consulta.buscarUsos(identidade)),
+    };
+  }
+  const jira = selecionados.includes('jira')
+    ? criarJiraDoAmbiente(env, { fetch: enviar }, limites)
+    : null;
+  const jiraOrigem = jira
+    ? {
+        buscarChamadosOnboarding: () =>
+          dentroDoPrazo(politica.timeoutChamadaMs - 100, () =>
+            jira.origem.buscarChamadosOnboarding(),
+          ),
+      }
+    : undefined;
+  return { jiraOrigem, diretorio };
+}

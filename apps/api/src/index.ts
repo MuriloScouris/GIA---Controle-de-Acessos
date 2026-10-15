@@ -1,7 +1,7 @@
 import { pathToFileURL } from 'node:url';
 import {
   criarJiraDoAmbiente,
-  criarIntegracoesDoAmbiente,
+  criarLeiturasDoAmbiente,
   carregarSelecaoIntegracoes,
 } from '@gia/conectores';
 import {
@@ -26,7 +26,7 @@ import { autenticacaoDoAmbiente } from './sessao/autenticacao-ambiente.js';
 export function criarAppDoAmbiente(
   env: VariaveisAmbiente = process.env,
   ambiente: AmbienteApi = prepararAmbienteApi(env),
-  integracoes?: Awaited<ReturnType<typeof criarIntegracoesDoAmbiente>>,
+  integracoes?: Awaited<ReturnType<typeof criarLeiturasDoAmbiente>>,
 ): FastifyInstance {
   carregarSelecaoIntegracoes(env);
   const jira = criarJiraDoAmbiente(env);
@@ -75,9 +75,10 @@ export function criarAppDoAmbiente(
 export async function iniciarApi(env: VariaveisAmbiente = process.env): Promise<FastifyInstance> {
   const resolvido = await resolverSegredosDeArquivo(env);
   const ambiente = prepararAmbienteApi(resolvido);
-  // Validação de seleção, configurações e arquivos antes de abrir banco/porta.
-  // Clientes de destino pertencem ao worker; construir aqui não executa chamadas.
-  const integracoes = await criarIntegracoesDoAmbiente(resolvido);
+  // Valida seleção e configurações antes de abrir banco/porta. Privilégio mínimo:
+  // só os segredos das leituras da API (diretório e origem Jira) são abertos;
+  // conectores de escrita pertencem ao worker.
+  const integracoes = await criarLeiturasDoAmbiente(resolvido);
   const app = criarAppDoAmbiente(resolvido, ambiente, integracoes);
   if (ambiente.portaMetricas !== null) {
     const metricas = await servirMetricas(ambiente.metricas, { porta: ambiente.portaMetricas });
