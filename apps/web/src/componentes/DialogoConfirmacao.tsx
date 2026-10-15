@@ -64,16 +64,16 @@ export function DialogoConfirmacao({
           {descricao && <p>{descricao}</p>}
           {children}
           {erro && (
-            <p role="alert" className="mensagem-erro">
+            <p role="alert" className="alert alert-danger">
               {erro}
             </p>
           )}
           <div className="modal-acoes">
-            <Button className="botao-secundario" onPress={fechar} isDisabled={ocupado}>
+            <Button className="btn btn-outline-secondary" onPress={fechar} isDisabled={ocupado}>
               Cancelar
             </Button>
             <Button
-              className="botao-primario"
+              className="btn btn-primary"
               onPress={() => void confirmar()}
               isDisabled={ocupado || desabilitarConfirmar}
             >

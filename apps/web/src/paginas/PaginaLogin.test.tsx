@@ -28,7 +28,11 @@ describe('tela de login', () => {
   it('renderiza a marca GIA, o card e o aviso de ambiente de demonstração', () => {
     renderizarLogin();
     expect(screen.getByRole('heading', { level: 1, name: 'Bem-vindo ao GIA' })).toBeTruthy();
-    expect(screen.getByText('Gestão do ciclo de vida de acessos.')).toBeTruthy();
+    expect(
+      screen.getByText(
+        (_, el) => el?.textContent === 'Gestão do ciclo de vida de acessos.' && el.tagName === 'P',
+      ),
+    ).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Entrar' })).toBeTruthy();
     expect(screen.getByText(/Ambiente de demonstração/)).toBeTruthy();
     expect(screen.getByRole('main')).toBeTruthy();
