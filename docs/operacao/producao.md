@@ -20,6 +20,9 @@ liberação.
 | `GIA_WORKER_METRICAS_PORTA`       | worker       | desligado         | idem, para o worker                                                |
 | `GIA_WORKER_ARQUIVO_SAUDE`        | worker       | desligado         | arquivo de batimento lido pela sonda                               |
 | `GIA_WORKER_SAUDE_MAXIMO_MS`      | sonda        | `90000`           | idade máxima do batimento para considerar o worker vivo            |
+| `GIA_<SISTEMA>_MODO`              | API e worker | `simulado`        | `real` liga o conector do sistema (`ad`, `m365`, `docusign`, `softexpert`, `jira`) |
+| `GIA_OIDC_*`                      | API          | —                 | login Entra ID; obrigatório em `producao` ([guia](login-entra-id.md)) |
+| `GIA_AUTH_SIMULADA`               | API          | `false`           | só em `teste` declarado; recusado em `producao`                    |
 
 Regras aplicadas no arranque (o erro cita só nomes de variáveis):
 
@@ -29,7 +32,15 @@ Regras aplicadas no arranque (o erro cita só nomes de variáveis):
   cofre. Fora de produção, a API registra o aviso `segredo_no_ambiente`.
 - **Produção e escrita real exigem PostgreSQL:** a memória do processo perderia
   a fila e os eventos de auditoria num reinício.
-- O login simulado não existe em `producao`.
+- **Login:** em `producao` a API só sobe com o OIDC completo (`GIA_OIDC_*`) e
+  recusa `GIA_AUTH_SIMULADA`. O login simulado só existe com `GIA_AMBIENTE`
+  **declarado** como `desenvolvimento` (ou `teste` com `GIA_AUTH_SIMULADA=true`):
+  sem a variável, a API sobe sem login nenhum (`/sessao/modo` = `indisponivel`),
+  nunca com a sessão simulada.
+- **Privilégio mínimo da API:** a API só consulta o diretório (AD + M365) e a
+  origem Jira. Ela valida a configuração de todo conector selecionado, mas só
+  abre os segredos dessas leituras; a chave do DocuSign e a credencial do
+  SoftExpert ficam só no worker e não precisam ser montadas na API.
 
 ## Gates de escrita externa (regra 8)
 
@@ -51,7 +62,8 @@ Os mesmos valores de gate devem ir para a API e para o worker.
 ## Deploy
 
 1. Aplicar migrações: `pnpm --filter @gia/persistencia migrar`
-   (`GIA_DATABASE_URL` ou `_ARQUIVO`). As migrações são aditivas; para desfazer
+   (`GIA_DATABASE_URL_ARQUIVO` em produção; URL com senha por valor é recusada,
+   como na API e no worker). As migrações são aditivas; para desfazer
    a última há `desfazerUltima` no migrador (só com aprovação, pode perder dado).
 2. Subir a API e o worker com a **mesma** configuração de gates.
 3. Rodar o smoke (abaixo). Falhou → rollback.
@@ -120,9 +132,11 @@ Confere vivacidade, prontidão (e o modo de escrita esperado), cabeçalhos de
 segurança e correlação, que dados exigem sessão, que o login simulado não
 existe em produção e as métricas. Sai 1 se algo falhar.
 
-Os conectores têm homologação somente leitura própria:
-`pnpm --filter @gia/conectores ad:verificar` (PR #12) e
-`softexpert:verificar` (PR #14).
+Os conectores têm homologação somente leitura própria, em `@gia/conectores`:
+`ad:verificar`, `m365:verificar`, `docusign:verificar` e `softexpert:verificar`.
+O worker tem `smoke:integracoes` (conexão de cada conector real, sem escrita)
+e `preflight` (DEV-289, evidência sanitizada; ver
+[dev-289-preflight.md](dev-289-preflight.md)).
 
 ## Rollback
 
@@ -139,14 +153,23 @@ Os conectores têm homologação somente leitura própria:
 
 ## Pendências para produção
 
-- **Login real (OIDC/Entra ID) não existe:** em `producao` não há login
-  simulado, então a API sobe, responde saúde e smoke, mas ninguém consegue
-  operar. Bloqueia o uso em produção.
-- **Nenhum conector real está registrado no worker** (`apps/worker/src/reais.ts`):
-  os PRs #12 (AD), #13 (DocuSign), #14 (SoftExpert) e #15 (Jira) precisam
-  registrar o seu ali ao entrar na `main`.
-- **Validação real** de cada sistema de destino e da infraestrutura
-  (cofre montando os arquivos, scraping das métricas, sondas no orquestrador)
-  ainda não foi feita em ambiente de produção.
-- `GIA_JIRA_API_TOKEN` (PR #15) é segredo por valor: em `producao` passa a ser
-  recusado; o PR precisa adotar `GIA_JIRA_API_TOKEN_ARQUIVO`.
+O que já existe no código (Sprint 1, ver
+[integração DEV-291](../integracao/sprint1-dev291.md)): login Entra ID/OIDC na
+API e na UI (DEV-288/DEV-290) e conectores reais de AD, M365, DocuSign,
+SoftExpert e Jira compostos no worker por `criarIntegracoesDoAmbiente`
+(DEV-287), cada um atrás de `GIA_<SISTEMA>_MODO=real` e dos gates de escrita.
+Nada disso foi validado em ambiente real. Continua bloqueando produção:
+
+- **Validação real** de cada conector e do login com tenant e contas de
+  serviço reais (o preflight hoje sai `producaoPronta: false`), e da
+  infraestrutura: cofre montando os arquivos, scraping das métricas, sondas no
+  orquestrador.
+- **Sessões em memória:** a API não pode rodar em mais de uma instância.
+- **Mesma credencial para ler e escrever:** a API usa as contas de serviço do
+  AD, M365 e Jira também usadas pelo worker para escrever; contas só de leitura
+  para a API ainda não existem.
+- **SoftExpert:** `softexpert:revogar` exige `GIA_SOFTEXPERT_REVOGACAO_CONFERIDA=true`,
+  que só deve ser ligado depois de conferir o `disableUser` no serviço real.
+- **Decisões de produto pendentes:** entrega da senha inicial e planos
+  alternativos de licença M365.
+- **UI:** a faixa "Ambiente com dados de exemplo" é fixa.

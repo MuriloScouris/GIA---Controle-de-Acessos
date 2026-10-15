@@ -76,13 +76,16 @@ regra de negócio; `501` ação ainda indisponível.
   os dados se perdem ao reiniciar e não são compartilhados com o worker. Um
   `ErroDeConcorrencia` vindo do banco vira `409 CONFLITO_DE_VERSAO`.
 - **Login:** OIDC com Entra ID (Authorization Code + PKCE) em produção,
-  obrigatório em `GIA_AMBIENTE=producao`; sessão simulada só em
-  `desenvolvimento` (ou em `teste` com `GIA_AUTH_SIMULADA=true`), recusada em
-  produção. Rotas `GET /sessao/oidc/entrar`, `GET /sessao/oidc/retorno`,
+  obrigatório em `GIA_AMBIENTE=producao`; sessão simulada só com
+  `GIA_AMBIENTE=desenvolvimento` declarado (ou `teste` com
+  `GIA_AUTH_SIMULADA=true`), recusada em produção e sem `GIA_AMBIENTE`
+  (fail-closed: `/sessao/modo` = `indisponivel`). Rotas `GET /sessao/oidc/entrar`, `GET /sessao/oidc/retorno`,
   `POST /sessao/oidc/sair` e `GET /sessao/modo`. Sessões ficam em memória do
   processo. Ver [login com Entra ID](../../docs/operacao/login-entra-id.md).
-- **Jira e diretório simulados** (`src/simuladores/`): fixtures fictícias, sem
-  rede. Regras de área e cargo fictícias em `src/aplicacao/regras-proposta.ts`.
+- **Jira e diretório:** simulados por padrão (`src/simuladores/`, fixtures
+  fictícias, sem rede). Com `GIA_JIRA_MODO=real` e AD + M365 reais, a API usa
+  `criarLeiturasDoAmbiente` (`@gia/conectores`), que abre só os segredos dessas
+  leituras (privilégio mínimo); conectores de escrita ficam no worker. Regras de área e cargo fictícias em `src/aplicacao/regras-proposta.ts`.
 - **Fila sem worker:** as operações ficam `pendente`. Consolidar o status do
   pedido após resultado ou registro manual é do serviço executor
   (`consolidarExecucao`), então o pedido não muda de status aqui.
