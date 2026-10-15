@@ -10,6 +10,7 @@ import {
 } from 'jose';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { criarApp, type Autenticacao } from './app.js';
+import { criarAppDoAmbiente } from './index.js';
 import { COOKIE_ESTADO_OIDC, type EventoLogin } from './http/rotas-oidc.js';
 import { COOKIE_SESSAO } from './http/protocolo.js';
 import { autenticacaoDoAmbiente } from './sessao/autenticacao-ambiente.js';
@@ -451,11 +452,13 @@ describe('autorização: papéis do Entra ID valem na matriz do domínio', () =>
 describe('modo de login pelo ambiente', () => {
   it('desenvolvimento usa a simulada; teste só com opt-in; produção exige OIDC', () => {
     const auditar = () => undefined;
-    expect(autenticacaoDoAmbiente({}, 'desenvolvimento', auditar).modo).toBe('simulada');
-    expect(autenticacaoDoAmbiente({}, 'teste', auditar).modo).toBe('indisponivel');
-    expect(autenticacaoDoAmbiente({ GIA_AUTH_SIMULADA: 'true' }, 'teste', auditar).modo).toBe(
-      'simulada',
-    );
+    const dev = { GIA_AMBIENTE: 'desenvolvimento' };
+    const teste = { GIA_AMBIENTE: 'teste' };
+    expect(autenticacaoDoAmbiente(dev, 'desenvolvimento', auditar).modo).toBe('simulada');
+    expect(autenticacaoDoAmbiente(teste, 'teste', auditar).modo).toBe('indisponivel');
+    expect(
+      autenticacaoDoAmbiente({ ...teste, GIA_AUTH_SIMULADA: 'true' }, 'teste', auditar).modo,
+    ).toBe('simulada');
     expect(autenticacaoDoAmbiente(ENV_OIDC, 'producao', auditar).modo).toBe('oidc');
     const erro = (env: Record<string, string>, ambiente: 'teste' | 'producao') => {
       try {
@@ -475,5 +478,33 @@ describe('modo de login pelo ambiente', () => {
       'GIA_AUTH_SIMULADA',
     ]);
     expect(erro({ GIA_OIDC_TENANT_ID: TENANT }, 'teste')).toContain('GIA_OIDC_CLIENT_ID');
+  });
+
+  it('sem GIA_AMBIENTE declarado não há login simulado (fail-closed), nem com opt-in', () => {
+    const auditar = () => undefined;
+    // O padrão da configuração é `desenvolvimento`; ele não abre a sessão simulada.
+    expect(autenticacaoDoAmbiente({}, 'desenvolvimento', auditar).modo).toBe('indisponivel');
+    expect(
+      autenticacaoDoAmbiente({ GIA_AUTH_SIMULADA: 'true' }, 'desenvolvimento', auditar).modo,
+    ).toBe('indisponivel');
+    expect(autenticacaoDoAmbiente({ GIA_AMBIENTE: '' }, 'desenvolvimento', auditar).modo).toBe(
+      'indisponivel',
+    );
+  });
+
+  it('API do ambiente sem GIA_AMBIENTE recusa POST /sessao/simulada', async () => {
+    const app = criarAppDoAmbiente({ GIA_LOG_NIVEL: 'erro' });
+    expect((await app.inject({ method: 'GET', url: '/sessao/modo' })).json()).toEqual({
+      modo: 'indisponivel',
+    });
+    const res = await app.inject({
+      method: 'POST',
+      url: '/sessao/simulada',
+      headers: { 'x-gia-csrf': '1' },
+      payload: { papel: 'administrador' },
+    });
+    expect(res.statusCode).toBe(404);
+    expect(res.headers['set-cookie']).toBeUndefined();
+    await app.close();
   });
 });

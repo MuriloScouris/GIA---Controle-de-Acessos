@@ -26,9 +26,12 @@ function auditarNoStdout(ambiente: string): (evento: EventoLogin) => void {
  * Como as pessoas entram, a partir do ambiente:
  *
  * - com `GIA_OIDC_*` → Entra ID (OIDC); configuração parcial é erro;
- * - `desenvolvimento` → sessão simulada;
- * - `teste` → sessão simulada só com `GIA_AUTH_SIMULADA=true` (testes automatizados);
- * - `producao` → exige OIDC e recusa `GIA_AUTH_SIMULADA`.
+ * - `GIA_AMBIENTE=desenvolvimento` declarado → sessão simulada;
+ * - `GIA_AMBIENTE=teste` → sessão simulada só com `GIA_AUTH_SIMULADA=true` (testes automatizados);
+ * - `producao` → exige OIDC e recusa `GIA_AUTH_SIMULADA`;
+ * - `GIA_AMBIENTE` ausente → nenhum login (fail-closed): o padrão `desenvolvimento`
+ *   da configuração não basta para abrir a sessão simulada, porque um deploy de
+ *   produção sem a variável cairia nele.
  */
 export function autenticacaoDoAmbiente(
   env: VariaveisAmbiente,
@@ -53,6 +56,9 @@ export function autenticacaoDoAmbiente(
     };
   }
   if (ambiente === 'producao') throw new ErroConfiguracao(OBRIGATORIAS_OIDC);
+  // Só o ambiente declarado libera a simulada; o valor padrão da configuração não.
+  const declarado = env['GIA_AMBIENTE']?.trim();
+  if (declarado !== ambiente) return { modo: 'indisponivel' };
   if (ambiente === 'desenvolvimento' || simulada === 'true') return { modo: 'simulada' };
   return { modo: 'indisponivel' };
 }
