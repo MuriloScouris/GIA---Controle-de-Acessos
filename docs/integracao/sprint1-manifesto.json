@@ -279,6 +279,19 @@
       "pr": 19,
       "arquivo": "packages/conectores/DOCUSIGN.md",
       "motivo": "seção \"Integração no worker\" reescrita para a composição do #20"
+    },
+    {
+      "pr": 24,
+      "arquivo": "docs/operacao/dev-292-prontidao.md",
+      "motivo": "DEV-291 (2ª revisão do #25): texto dizia que a integração DEV-291 estava pendente; ela foi feita"
+    },
+    {
+      "pr": 24,
+      "arquivo": "apps/worker/src/prontidao/catalogo.ts",
+      "motivo": "DEV-291 (2ª revisão do #25): textos de oidc.integracaoUi e global.integracao refletem a integração feita; itens seguem pendentes",
+      "cobertura": [
+        "apps/worker/src/prontidao/prontidao.test.ts"
+      ]
     }
   ],
   "ajustesIntegracao": [
@@ -345,6 +358,22 @@
     {
       "arquivo": "packages/persistencia/src/migrar.ts",
       "motivo": "DEV-291: migrar lê GIA_DATABASE_URL_ARQUIVO"
+    },
+    {
+      "arquivo": "docs/operacao/dev-292-prontidao.md",
+      "motivo": "DEV-291: integração deixou de ser pendente no texto"
+    },
+    {
+      "arquivo": "apps/worker/src/prontidao/catalogo.ts",
+      "motivo": "DEV-291: textos da integração atualizados (itens seguem pendentes)"
+    },
+    {
+      "arquivo": "docs/operacao/pendencias-medias-sprint1.md",
+      "motivo": "DEV-291: registro formal dos 10 itens médios da revisão"
+    },
+    {
+      "arquivo": "tests/e2e/verificador-integracao.test.ts",
+      "motivo": "DEV-291: teste de mutação (backdoor) do verificador"
     }
   ],
   "conflitosPorUniao": [
@@ -355,5 +384,44 @@
     "packages/conectores/package.json",
     "packages/conectores/src/index.ts",
     "packages/contratos/src/index.ts"
-  ]
+  ],
+  "blobs": {
+    "README.md": "86b29e9a20fb3660ba5e1befe690f5b2bcba4c86",
+    "apps/api/README.md": "61c6801b0ed67c1a75f0037dbd697052766c493d",
+    "apps/api/src/index.ts": "5bd756ed34233710f3567bfa8da5c25a3f998f58",
+    "apps/api/src/jira-cloud.test.ts": "0adf1fa81cc733d0272565fb0629055ccb33ccc9",
+    "apps/api/src/oidc.test.ts": "323a9d34117f0effc394c34e77d99da0bd06d861",
+    "apps/api/src/sessao/autenticacao-ambiente.ts": "d8071980d450c5602390ebd667fc919421495496",
+    "apps/api/src/smoke.test.ts": "4c7646d9e166cfcae13c6cd8eb36e80d3a936baf",
+    "apps/worker/src/docusign-composicao.test.ts": "2a3bdc80fb63b150bf5bf51aaefd40e646981112",
+    "apps/worker/src/docusign-worker.test.ts": null,
+    "apps/worker/src/docusign.ts": null,
+    "apps/worker/src/index.ts": "a1c9e3755ab9093d27bd2a5f2dfe42c1b7b5929d",
+    "apps/worker/src/jira-cloud.test.ts": "7c4ff0c8d46454a782f004860cac1f73dbaf35f1",
+    "apps/worker/src/prontidao/catalogo.ts": "dde7a90631e8c2c8e73487c31cfc5a557daec66a",
+    "apps/worker/src/reais.ts": "2ff49d8a20fbefa3dc4b567784e2cdbaf404c843",
+    "docs/integracao/sprint1-dev291.md": "68509d4477f5de4ca82b6949d484492fad391ddb",
+    "docs/operacao/dev-292-prontidao.md": "b469f0fe76411bafd94c6ff197778dbde650064e",
+    "docs/operacao/pendencias-medias-sprint1.md": "59e5df8bc3cb096eab501c50e3f38f5638105853",
+    "docs/operacao/producao.md": "1b615491894c31a29e82a708a42c968a1c4e2c05",
+    "packages/conectores/DOCUSIGN.md": "712a98be84f64e37d2bc73e7dad0a8bc7e930727",
+    "packages/conectores/README.md": "5915678c338626634684e8d08c96389b7be48ab0",
+    "packages/conectores/package.json": "1ac2f715876bdb52cefbfe303794ddd618ee3695",
+    "packages/conectores/src/composicao.test.ts": "a959549b82729894e505ce9ab89fdd2eeba44d16",
+    "packages/conectores/src/composicao.ts": "b823a27cacadbd5666e49a4889d33df7177c8051",
+    "packages/conectores/src/docusign/cliente.ts": "37ec7b84a9276dd710ccb9ec477c5c2039cdb9ea",
+    "packages/conectores/src/index.ts": "cb2ce38db7bd360a6ce060d65b26b1777a5da11e",
+    "packages/conectores/src/jira/ambiente.ts": "203487071a7d993ded80151576b860b7c7fa5d25",
+    "packages/conectores/src/prazo.ts": "5f0f0b15177f4936ee8eb78d0cce46f11665f23c",
+    "packages/conectores/src/transportes/ldap.ts": "38ba124105cf54f2290eec5b66d31b3b996ca8c0",
+    "packages/contratos/src/index.ts": "339c17b4eb375cd0206356e07ba63c01c7b462cc",
+    "packages/contratos/src/producao.test.ts": "b60b891e3a23dbf468e6e63d0923c9a35bfc95a6",
+    "packages/contratos/src/segredos.ts": "5913d41f759204d074da4bafe3ea78df149bbd44",
+    "packages/persistencia/package.json": "3ac54943d3d9a81d9d536f45993cfc18e41591bc",
+    "packages/persistencia/src/index.test.ts": "7f36f7b62d97668f7f013bafb9ceaa2bd0737890",
+    "packages/persistencia/src/migrar.test.ts": "1d2eeefc27545ebb6eb40e433db1a0919e4dad1d",
+    "packages/persistencia/src/migrar.ts": "cba41df4939220124c1918193bff2440cf37c7a3",
+    "scripts/verificar-integracao-sprint1.mjs": "30efb0a4f615dc9c2b79385dbcb9133b3497979c",
+    "tests/e2e/verificador-integracao.test.ts": "8ff824c1134a60061bc3f12ad570fea4148fcb4c"
+  }
 }
