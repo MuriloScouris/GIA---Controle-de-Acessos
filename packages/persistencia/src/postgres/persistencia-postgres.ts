@@ -277,6 +277,20 @@ function repositorios(tx: Tx, configuracao: ConfiguracaoSistemas): RepositoriosC
           );
         }
       },
+      doPedido: async (pedidoId, { antesDe, limite }) =>
+        (
+          await lerDados<Evento>(
+            tx,
+            sql`
+          select dados from eventos
+          where pedido_id = ${pedidoId}
+            and (${antesDe ?? null}::uuid is null or ordem < (
+              select ordem from eventos where id = ${antesDe ?? null}::uuid and pedido_id = ${pedidoId}
+            ))
+          order by ordem desc limit ${limite}
+        `,
+          )
+        ).map((evento) => congelarProfundo(evento)),
       porTipo: async (tipo) =>
         (
           await lerDados<Evento>(

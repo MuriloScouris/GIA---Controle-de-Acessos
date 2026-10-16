@@ -2,23 +2,26 @@
 
 API HTTP do Gia (Fastify, ADR-0001): adaptador fino sobre os casos de uso de
 onboarding. Domínio e regras vêm de `@gia/dominio`; toda entrada é validada
-pelos schemas Zod de `@gia/contratos` (ADR-0005). A API **não fala com nenhum
-sistema de destino**: aprovar só grava a decisão e solicitar execução só grava
-a operação na fila, para o worker consumir.
+pelos schemas Zod de `@gia/contratos` (ADR-0005). A API **não escreve em
+nenhum sistema de destino**: aprovar só grava a decisão e solicitar execução só
+grava a operação na fila, para o worker consumir. Com os conectores reais
+selecionados, ela só **lê**: a origem Jira (importação de chamados) e o
+diretório (AD + Microsoft 365, consulta de uso), por `criarLeiturasDoAmbiente`,
+que abre apenas os segredos dessas leituras. O login é pelo Entra ID (OIDC).
 
 ## Rotas
 
-| Método e rota                      | O que faz                                                                      | Permissão (domínio)  |
-| ---------------------------------- | ------------------------------------------------------------------------------ | -------------------- |
-| `POST /sessao/simulada`            | Abre sessão simulada para uma pessoa fictícia (`{ papel }`). Fora de produção. | —                    |
-| `GET /sessao` · `DELETE /sessao`   | Sessão atual · logout.                                                         | sessão               |
-| `POST /importacoes/jira`           | Importa os chamados de onboarding do Jira simulado (`{}`).                     | `criarPedido`        |
-| `GET /pedidos`                     | Lista os pedidos visíveis para a pessoa.                                       | `acompanharPedido`   |
-| `GET /pedidos/:pedidoId`           | Pedido, proposta (identidade, verificação, itens) e resultado dos itens.       | `acompanharPedido`   |
-| `GET /pedidos/:pedidoId/itens`     | Resultado por item da revisão corrente, com as operações da fila.              | `acompanharPedido`   |
-| `GET /pedidos/:pedidoId/itens/:id` | Um item (de qualquer revisão do pedido).                                       | `acompanharPedido`   |
-| `GET /pedidos/:pedidoId/documento` | Documento de acessos (DOCX) do pedido concluído; cada download vira evento.    | `baixarDocumento`    |
-| `POST /pedidos/:pedidoId/comandos` | Comando do contrato: `{ pedidoId, versaoEsperada, acao, dados }`.              | por ação, ver abaixo |
+| Método e rota                      | O que faz                                                                              | Permissão (domínio)  |
+| ---------------------------------- | -------------------------------------------------------------------------------------- | -------------------- |
+| `POST /sessao/simulada`            | Abre sessão simulada para uma pessoa fictícia (`{ papel }`). Só desenvolvimento/teste. | —                    |
+| `GET /sessao` · `DELETE /sessao`   | Sessão atual · logout.                                                                 | sessão               |
+| `POST /importacoes/jira`           | Importa os chamados de onboarding do Jira simulado (`{}`).                             | `criarPedido`        |
+| `GET /pedidos`                     | Lista os pedidos visíveis para a pessoa.                                               | `acompanharPedido`   |
+| `GET /pedidos/:pedidoId`           | Pedido, proposta (identidade, verificação, itens) e resultado dos itens.               | `acompanharPedido`   |
+| `GET /pedidos/:pedidoId/itens`     | Resultado por item da revisão corrente, com as operações da fila.                      | `acompanharPedido`   |
+| `GET /pedidos/:pedidoId/itens/:id` | Um item (de qualquer revisão do pedido).                                               | `acompanharPedido`   |
+| `GET /pedidos/:pedidoId/documento` | Documento de acessos (DOCX) do pedido concluído; cada download vira evento.            | `baixarDocumento`    |
+| `POST /pedidos/:pedidoId/comandos` | Comando do contrato: `{ pedidoId, versaoEsperada, acao, dados }`.                      | por ação, ver abaixo |
 
 Comandos: `editarProposta` e `recalcularIdentidade` (`editarProposta`; revalidam a
 identidade na mesma transação), `aprovar` (`decidirPedido`; revalida a identidade
@@ -56,9 +59,15 @@ regra de negócio; `501` ação ainda indisponível.
   enums, códigos) e datas/instantes ISO dentro de texto livre não são
   alterados, para a resposta seguir o contrato; a troca da matrícula é literal
   (qualquer caractere). Detalhes de erro passam pela mesma máscara.
-- **Escrita externa desligada:** a configuração só aceita `GIA_ESCRITA_EXTERNA=false`,
-  então as operações nascem em modo `simulado` (regras 8 e 9). Em modo real, o
-  domínio exige a liberação por sistema (`ESCRITA_NAO_LIBERADA`).
+- **Escrita externa desligada por padrão:** as operações nascem `simulado`
+  (regras 8 e 9). Só nascem `real` com `GIA_ESCRITA_EXTERNA=true` (nunca em
+  desenvolvimento), e o domínio ainda exige o sistema e a operação em
+  `GIA_ESCRITA_LIBERADA` (`ESCRITA_NAO_LIBERADA`). Ver
+  [runbook de produção](../../docs/operacao/producao.md).
+- **Saúde e observabilidade:** `GET /saude` (vivacidade), `GET /saude/pronta`
+  (prontidão, 503 se o banco não responde), logs JSON com `x-correlacao-id` e
+  métricas Prometheus em porta interna (`GIA_METRICAS_PORTA`).
+  `pnpm --filter @gia/api smoke` é o smoke test pós-deploy.
 - Respostas com `cache-control: no-store`; erros internos nunca ecoam mensagens
   do framework ou dados recebidos.
 
@@ -69,10 +78,17 @@ regra de negócio; `501` ação ainda indisponível.
   antes. Sem a variável, usa a memória do processo (`src/persistencia/memoria.ts`):
   os dados se perdem ao reiniciar e não são compartilhados com o worker. Um
   `ErroDeConcorrencia` vindo do banco vira `409 CONFLITO_DE_VERSAO`.
-- **Sessão simulada em memória**, no lugar do OIDC com Entra ID; em produção a
-  rota de login simulado não existe.
-- **Jira e diretório simulados** (`src/simuladores/`): fixtures fictícias, sem
-  rede. Regras de área e cargo fictícias em `src/aplicacao/regras-proposta.ts`.
+- **Login:** OIDC com Entra ID (Authorization Code + PKCE) em produção,
+  obrigatório em `GIA_AMBIENTE=producao`; sessão simulada só com
+  `GIA_AMBIENTE=desenvolvimento` declarado (ou `teste` com
+  `GIA_AUTH_SIMULADA=true`), recusada em produção e sem `GIA_AMBIENTE`
+  (fail-closed: `/sessao/modo` = `indisponivel`). Rotas `GET /sessao/oidc/entrar`, `GET /sessao/oidc/retorno`,
+  `POST /sessao/oidc/sair` e `GET /sessao/modo`. Sessões ficam em memória do
+  processo. Ver [login com Entra ID](../../docs/operacao/login-entra-id.md).
+- **Jira e diretório:** simulados por padrão (`src/simuladores/`, fixtures
+  fictícias, sem rede). Com `GIA_JIRA_MODO=real` e AD + M365 reais, a API usa
+  `criarLeiturasDoAmbiente` (`@gia/conectores`), que abre só os segredos dessas
+  leituras (privilégio mínimo); conectores de escrita ficam no worker. Regras de área e cargo fictícias em `src/aplicacao/regras-proposta.ts`.
 - **Fila sem worker:** as operações ficam `pendente`. Consolidar o status do
   pedido após resultado ou registro manual é do serviço executor
   (`consolidarExecucao`), então o pedido não muda de status aqui.

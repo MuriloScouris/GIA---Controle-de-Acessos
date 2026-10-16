@@ -42,7 +42,12 @@ export interface Gia {
 }
 
 export function subirGia(banco: BancoDeTeste): Gia {
-  const app = criarAppDoAmbiente({ GIA_AMBIENTE: 'teste', GIA_DATABASE_URL: banco.url });
+  // Teste automatizado: a sessão simulada só existe com opt-in explícito fora de desenvolvimento.
+  const app = criarAppDoAmbiente({
+    GIA_AMBIENTE: 'teste',
+    GIA_AUTH_SIMULADA: 'true',
+    GIA_DATABASE_URL: banco.url,
+  });
   const post = (cookie: string | null, url: string, corpo: unknown) =>
     app.inject({
       method: 'POST',

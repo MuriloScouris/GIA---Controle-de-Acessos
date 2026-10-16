@@ -39,8 +39,76 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # Testes do conector AD usam um Active Directory real (Samba AD DC) por LDAPS,
+      # efêmero do job. A senha do administrador é gerada aqui e nunca sai do runner.
+      - name: Subir Active Directory de teste (Samba AD DC)
+        run: |
+          pasta="$RUNNER_TEMP/ad"
+          mkdir -p "$pasta"
+          senha="Gia-$(openssl rand -hex 12)-9a"
+          echo "::add-mask::$senha"
+          printf %s "$senha" > "$pasta/senha"
+          chmod 600 "$pasta/senha"
+          docker run -d --name gia-ad-teste --hostname dc1 -p 127.0.0.1:6360:636 \
+            -e REALM=GIA.TESTE.LOCAL -e DOMAIN=GIATESTE -e ADMINPASS="$senha" \
+            smblds/smblds@sha256:2fa04e4a744c80057540ca2834a3550cbfa7c456821caf3f60cf5898c9051d23
+          for _ in $(seq 1 90); do
+            if docker exec gia-ad-teste sh /healthcheck.sh >/dev/null 2>&1 \
+              && docker cp gia-ad-teste:/var/lib/samba/private/tls/ca.pem "$pasta/ca.pem" 2>/dev/null; then
+              break
+            fi
+            sleep 2
+          done
+          test -s "$pasta/ca.pem"
+          {
+            echo "GIA_AD_TESTE_URL=ldaps://127.0.0.1:6360"
+            echo "GIA_AD_TESTE_BIND_DN=CN=Administrator,CN=Users,DC=gia,DC=teste,DC=local"
+            echo "GIA_AD_TESTE_SENHA_ARQUIVO=$pasta/senha"
+            echo "GIA_AD_TESTE_BASE_DN=DC=gia,DC=teste,DC=local"
+            echo "GIA_AD_TESTE_CA_ARQUIVO=$pasta/ca.pem"
+            echo "GIA_AD_TESTE_TLS_NOME_SERVIDOR=dc1.gia.teste.local"
+          } >> "$GITHUB_ENV"
       - run: pnpm format:check
       - run: pnpm lint
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm build
+      - run: pnpm --filter @gia/worker smoke:integracoes --configuracao
+      - name: Preflight sem credenciais falha fechado e gera evidencia sanitizada
+        run: |
+          set +e
+          pnpm --filter @gia/worker preflight --offline --saida "$RUNNER_TEMP/preflight-dev289.json"
+          codigo=$?
+          set -e
+          test "$codigo" -eq 1
+          node -e 'const fs = require("node:fs"); const r = JSON.parse(fs.readFileSync(process.argv[1], "utf8")); if (r.codigoSaida !== 1 || r.escritaHabilitada !== false || r.producaoPronta !== false || r.leiturasValidadas !== false || r.sistemas.length !== 5) process.exit(1);' "$RUNNER_TEMP/preflight-dev289.json"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: preflight-negativo-dev289
+          path: ${{ runner.temp }}/preflight-dev289.json
+          retention-days: 7
+      - name: Matriz sem evidencia mantem NO_GO
+        run: |
+          set +e
+          pnpm --filter @gia/worker prontidao --revisao "${{ github.event.pull_request.head.sha || github.sha }}" --saida "$RUNNER_TEMP/prontidao-dev292.json"
+          codigo=$?
+          set -e
+          test "$codigo" -eq 1
+          node -e 'const fs = require("node:fs"); const r = JSON.parse(fs.readFileSync(process.argv[1], "utf8")); const itens = r.sistemas.flatMap(s => s.itens); if (r.decisao !== "NO_GO" || r.producaoPronta !== false || r.escritaHabilitada !== false || itens.length !== 62 || itens.some(i => i.pronto || i.estado !== "pendente")) process.exit(1);' "$RUNNER_TEMP/prontidao-dev292.json"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: matriz-no-go-dev292
+          path: ${{ runner.temp }}/prontidao-dev292.json
+          retention-days: 7
+      - run: pnpm --filter @gia/tests exec playwright install --with-deps chromium
+      - run: pnpm test:e2e
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: onboarding-browser-e2e
+          path: |
+            tests/playwright-report/
+            tests/test-results/
+          retention-days: 7

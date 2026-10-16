@@ -14,14 +14,17 @@
     "lint": "eslint .",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
-    "start": "node dist/index.js"
+    "start": "node dist/index.js",
+    "smoke": "node dist/smoke.js"
   },
   "dependencies": {
+    "@gia/conectores": "workspace:*",
     "@gia/contratos": "workspace:*",
     "@gia/dominio": "workspace:*",
     "@gia/persistencia": "workspace:*",
     "@gia/documentos": "workspace:*",
-    "fastify": "catalog:"
+    "fastify": "catalog:",
+    "jose": "catalog:"
   },
   "devDependencies": {
     "@types/node": "catalog:",

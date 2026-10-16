@@ -55,6 +55,11 @@ export interface Repositorios {
   readonly eventos: {
     anexar(eventos: readonly Evento[]): Promise<void>;
     porTipo(tipo: TipoEvento): Promise<readonly Evento[]>;
+    /** Mais recentes primeiro; cursor de outro pedido/não encontrado devolve página vazia. */
+    doPedido(
+      pedidoId: Uuid,
+      consulta: { readonly antesDe?: Uuid; readonly limite: number },
+    ): Promise<readonly Evento[]>;
   };
   readonly configuracao: {
     atual(): Promise<ConfiguracaoSistemas>;

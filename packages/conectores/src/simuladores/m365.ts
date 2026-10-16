@@ -127,8 +127,11 @@ export class GraphSimulado implements ClienteGraph {
     });
   }
 
-  private exigir(upn: string): UsuarioSimulado {
-    const usuario = this.usuarios.get(normalizarAcesso(upn));
+  /** Pelo UPN ou pelo id do Entra ID, como o Graph aceita. */
+  private exigir(idOuUpn: string): UsuarioSimulado {
+    const usuario =
+      this.usuarios.get(normalizarAcesso(idOuUpn)) ??
+      [...this.usuarios.values()].find((u) => u.id === idOuUpn);
     if (usuario === undefined) {
       throw new ErroFornecedor('recusado', 'USUARIO_AUSENTE', 'O usuário não existe no Entra ID.');
     }

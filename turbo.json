@@ -13,7 +13,7 @@
     },
     "test": {
       "dependsOn": ["^build"],
-      "env": ["CI", "GIA_DATABASE_URL_TESTE"]
+      "env": ["CI", "GIA_DATABASE_URL_TESTE", "GIA_AD_TESTE_*"]
     }
   }
 }

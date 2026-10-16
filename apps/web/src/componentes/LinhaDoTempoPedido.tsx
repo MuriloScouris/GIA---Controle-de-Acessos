@@ -4,6 +4,8 @@ import { ROTULO_VINCULO, formatarInstante, nomeSistema } from '../rotulos.js';
 
 type Tom = 'neutro' | 'ok';
 
+const CLASSE_DA_COR = { azul: 'tab-azul', verde: 'tab-verde' } as const;
+
 interface Evento {
   readonly id: string;
   readonly instante: string;
@@ -109,27 +111,31 @@ export function LinhaDoTempoPedido({ detalhe }: { detalhe: PedidoDetalhe }) {
   const eventos = eventosDoPedido(detalhe);
   const agora = new Date();
   return (
-    <ol className="tl">
+    <ol className="linha-tempo">
       {eventos.map((evento, indice) => {
         const dia = rotuloDoDia(evento.instante, agora);
         const novoDia = indice === 0 || rotuloDoDia(eventos[indice - 1]!.instante, agora) !== dia;
         return (
           <Fragment key={evento.id}>
-            {novoDia && <li className="tl-dia">{dia}</li>}
-            <li className="tl-item">
-              <span className={`tl-ponto ${evento.tom}`} aria-hidden="true" />
-              <div className="tl-cartao">
-                <div className="tl-linha">
-                  <span className={`tl-tipo ${evento.cor}`}>{evento.tipo}</span>
-                  <span className={`tl-estado ${evento.tom}`}>{evento.estado}</span>
-                  <time dateTime={evento.instante}>{formatarInstante(evento.instante)}</time>
-                  {evento.ator && <span className="tl-ator">{evento.ator}</span>}
+            {novoDia && <li className="lt-dia">{dia}</li>}
+            <li className="lt-item">
+              <span className={`lt-marco ${evento.tom}`} aria-hidden="true" />
+              <div className="lt-conteudo">
+                <div className="lt-cabeca">
+                  <span className={`lt-tipo ${CLASSE_DA_COR[evento.cor]}`}>{evento.tipo}</span>
+                  <span className={`badge-soft ${evento.tom === 'ok' ? 'ok' : 'neutral'}`}>
+                    {evento.estado}
+                  </span>
+                  <time className="lt-hora" dateTime={evento.instante}>
+                    {formatarInstante(evento.instante)}
+                  </time>
+                  {evento.ator && <span className="lt-ator">{evento.ator}</span>}
                 </div>
-                <p className="tl-titulo">{evento.titulo}</p>
-                <div className="tl-chips">
+                <p className="lt-descricao">{evento.titulo}</p>
+                <div className="lt-contexto">
                   {evento.chips.map(([rotulo, valor]) => (
-                    <span key={rotulo} className="tl-chip">
-                      <span>{rotulo}</span>
+                    <span key={rotulo} className="lt-chip">
+                      <span className="rot">{rotulo}</span>
                       {valor}
                     </span>
                   ))}

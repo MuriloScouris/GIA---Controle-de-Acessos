@@ -10,6 +10,8 @@ export interface UsuarioDocusign {
   readonly situacao: SituacaoDocusign;
   readonly perfil: string;
   readonly grupo: string;
+  /** Todos os grupos retornados pelo transporte; simuladores antigos podem omitir. */
+  readonly grupos?: readonly string[];
 }
 
 export type NovoUsuarioDocusign = Omit<ParametrosDocusign, 'sistema'>;
@@ -73,10 +75,16 @@ export function criarFornecedorDocusign(cliente: ClienteDocusign): Fornecedor<'d
         };
       }
       const perfilOk = usuario.perfil.trim().toLowerCase() === p.perfil.trim().toLowerCase();
-      const grupoOk = usuario.grupo.trim().toLowerCase() === p.grupo.trim().toLowerCase();
+      const grupos = usuario.grupos ?? [usuario.grupo];
+      const grupoOk = grupos.some(
+        (grupo) => grupo.trim().toLowerCase() === p.grupo.trim().toLowerCase(),
+      );
       return {
         contaExiste: true,
-        acessosEncontrados: [`perfil:${usuario.perfil}`, `grupo:${usuario.grupo}`],
+        acessosEncontrados: [
+          `perfil:${usuario.perfil}`,
+          ...grupos.map((grupo) => `grupo:${grupo}`),
+        ],
         etapaComprovada: perfilOk && grupoOk ? 'criarUsuarioComPerfilEGrupo' : null,
         referenciaExterna: usuario.id,
       };

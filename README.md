@@ -10,10 +10,14 @@ Hermes + Dev Opus + Dev Sonnet + Revisor Terra + Revisor Sol). Fluxo: issue no
 Linear → branch/worktree por issue → PR → CI → revisão independente → merge
 squash → Done.
 
+O transporte REST do Jira Cloud (DEV-285) possui opt-in de origem/destino e testes
+de contrato. A ativação produtiva permanece pendente; veja configuração, evidências
+e bloqueios no [runbook Jira](docs/integracoes/jira-dev-285.md).
+
 ## Primeira entrega: ponta a ponta simulada
 
 Tudo funciona de ponta a ponta **sem escrever em nenhum sistema real**: a
-escrita externa nasce desligada e a configuração só aceita `false` (regra 8),
+escrita externa nasce desligada e só liga com gates explícitos (regra 8),
 os conectores falam com simuladores em memória e resultado simulado nunca
 confirma acesso (regra 9).
 
@@ -83,6 +87,8 @@ pnpm check        # format:check + lint + typecheck + test + build
 # 1. Banco
 docker run -d --name gia-pg -e POSTGRES_HOST_AUTH_METHOD=trust -p 55432:5432 postgres:17-alpine
 export GIA_DATABASE_URL=postgres://postgres@localhost:55432/postgres
+# Login simulado só com o ambiente declarado; sem ele, a API sobe sem login.
+export GIA_AMBIENTE=desenvolvimento
 
 # 2. Build e migrações
 pnpm build
@@ -102,7 +108,7 @@ interface sozinha), mas aí o worker não enxerga os pedidos.
 | Variável                  | Quem       | Padrão                                         |
 | ------------------------- | ---------- | ---------------------------------------------- |
 | `GIA_AMBIENTE`            | API/worker | `desenvolvimento` (`teste`, `producao`)        |
-| `GIA_ESCRITA_EXTERNA`     | API/worker | `false` (único valor aceito)                   |
+| `GIA_ESCRITA_EXTERNA`     | API/worker | `false`; `true` exige `GIA_ESCRITA_LIBERADA`   |
 | `PORT`                    | API        | `3000`                                         |
 | `GIA_DATABASE_URL`        | API/worker | API: memória; worker: obrigatória              |
 | `GIA_WORKER_ID`           | worker     | `worker-<host>-<pid>`                          |
@@ -137,3 +143,21 @@ Cada arquivo de teste de banco cria um PostgreSQL descartável a partir de
 
 Decisões de arquitetura em `docs/adr` (fora do repositório nesta fase) e nos
 READMEs de cada pacote.
+
+## Operação em produção
+
+Gates de escrita externa, segredos em arquivo do cofre, saúde e prontidão,
+logs estruturados com correlação, métricas, smoke test pós-deploy e rollback:
+[runbook de produção](docs/operacao/producao.md). Produção ainda depende de
+login real (OIDC) e de homologacao autorizada dos conectores reais.
+Composicao e habilitacao controlada: [DEV-287](docs/integracoes/dev-287-composicao.md).
+
+## Validação da aba Onboarding (DEV-286)
+
+`pnpm test:e2e` compila a SPA e testa no Chromium o fluxo com API/worker,
+PostgreSQL descartável e cinco conectores simulados. Exige `GIA_DATABASE_URL_TESTE`
+e `pnpm --filter @gia/tests exec playwright install chromium`.
+O CI também executa esse gate. Histórico persistido está disponível aos papéis
+de auditoria; respostas perdidas de comandos exigem releitura, sem repetição automática.
+Dependências dos PRs #12–#15, bloqueios reais e checklists de go-live/pós-deploy
+estão no [registro de validação](docs/validacao/dev-286-onboarding.md).

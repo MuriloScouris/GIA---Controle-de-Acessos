@@ -109,7 +109,7 @@ describe('conector SoftExpert', () => {
       etapa: 'criarUsuario',
       referenciaExterna: 'M1001',
     });
-    expect(simulador.usuario('maria.souza')).toMatchObject({ ativo: true, area: 'Tecnologia' });
+    expect(simulador.usuario('M1001')).toMatchObject({ ativo: true, area: 'Tecnologia' });
   });
 
   it('Fault dentro de 2xx é erro e cadastro inexistente não cria nada', async () => {
@@ -122,7 +122,7 @@ describe('conector SoftExpert', () => {
     expect(
       await conector.provisionar(contexto(paramsSoftexpert({ area: 'Inexistente' }))),
     ).toMatchObject({ efeito: 'semEfeito', codigo: 'CADASTRO_INEXISTENTE' });
-    expect(simulador.usuario('maria.souza')).toBeNull();
+    expect(simulador.usuario('M1001')).toBeNull();
   });
 
   it('limite de taxa e timeout seguem a regra 3', async () => {
@@ -150,7 +150,7 @@ describe('conector SoftExpert', () => {
     expect(avaliarExistencia(diferente, paramsSoftexpert({ funcao: 'Gerente' })).situacao).toBe(
       'incompleto',
     );
-    expect(simulador.usuario('maria.souza')?.ativo).toBe(true);
+    expect(simulador.usuario('M1001')?.ativo).toBe(true);
   });
 
   it('revogar inativa o usuário', async () => {
@@ -160,7 +160,7 @@ describe('conector SoftExpert', () => {
       efeito: 'confirmado',
       etapa: 'inativarUsuario',
     });
-    expect(simulador.usuario('maria.souza')?.ativo).toBe(false);
+    expect(simulador.usuario('M1001')?.ativo).toBe(false);
     expect(await conector.revogar(contextoRevogacao(paramsSoftexpert()))).toMatchObject({
       codigo: 'JA_REVOGADO',
     });

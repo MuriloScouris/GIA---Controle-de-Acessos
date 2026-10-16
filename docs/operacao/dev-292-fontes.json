@@ -1,0 +1,176 @@
+{
+  "schema": "gia.fontes-prontidao.v1",
+  "observadoEm": "2026-10-15T18:27:27.839Z",
+  "baseImplementacao": "7d205b1e66dc89e6fe626f3c44a626ceb66a6a09",
+  "natureza": "Evidencia de implementacao e CI; nao homologa producao",
+  "fontes": [
+    {
+      "pr": 12,
+      "url": "https://github.com/MuriloScouris/GIA---Controle-de-Acessos/pull/12",
+      "revisao": "677f4aebc5ef9bd88d6bdb0c3e59e26e3b032eb2",
+      "base": "main",
+      "ci": [
+        {
+          "nome": "verificar",
+          "estado": "COMPLETED",
+          "resultado": "SUCCESS",
+          "evidencia": "https://github.com/MuriloScouris/GIA---Controle-de-Acessos/actions/runs/38745151791/job/116456752318"
+        }
+      ]
+    },
+    {
+      "pr": 13,
+      "url": "https://github.com/MuriloScouris/GIA---Controle-de-Acessos/pull/13",
+      "revisao": "f7d315147a59fb4c5441abfb0b15cd976159eae7",
+      "base": "main",
+      "ci": [
+        {
+          "nome": "verificar",
+          "estado": "COMPLETED",
+          "resultado": "SUCCESS",
+          "evidencia": "https://github.com/MuriloScouris/GIA---Controle-de-Acessos/actions/runs/38745262829/job/116457124756"
+        }
+      ]
+    },
+    {
+      "pr": 14,
+      "url": "https://github.com/MuriloScouris/GIA---Controle-de-Acessos/pull/14",
+      "revisao": "2be9c428efea41c04d086a8e1613d9b3f5081a0d",
+      "base": "main",
+      "ci": [
+        {
+          "nome": "verificar",
+          "estado": "COMPLETED",
+          "resultado": "SUCCESS",
+          "evidencia": "https://github.com/MuriloScouris/GIA---Controle-de-Acessos/actions/runs/38750840223/job/116476504181"
+        }
+      ]
+    },
+    {
+      "pr": 15,
+      "url": "https://github.com/MuriloScouris/GIA---Controle-de-Acessos/pull/15",
+      "revisao": "948f77d764690e023410d8481518456edacfd002",
+      "base": "main",
+      "ci": [
+        {
+          "nome": "verificar",
+          "estado": "COMPLETED",
+          "resultado": "SUCCESS",
+          "evidencia": "https://github.com/MuriloScouris/GIA---Controle-de-Acessos/actions/runs/38751208098/job/116477776776"
+        }
+      ]
+    },
+    {
+      "pr": 16,
+      "url": "https://github.com/MuriloScouris/GIA---Controle-de-Acessos/pull/16",
+      "revisao": "12742e71ce8bebeaf0bbc550ec4a455a4e64d20b",
+      "base": "main",
+      "ci": [
+        {
+          "nome": "verificar",
+          "estado": "COMPLETED",
+          "resultado": "SUCCESS",
+          "evidencia": "https://github.com/MuriloScouris/GIA---Controle-de-Acessos/actions/runs/38756825505/job/116497335722"
+        }
+      ]
+    },
+    {
+      "pr": 17,
+      "url": "https://github.com/MuriloScouris/GIA---Controle-de-Acessos/pull/17",
+      "revisao": "6bee9ddf782656002df0b60ae9f307059f70d96b",
+      "base": "main",
+      "ci": [
+        {
+          "nome": "verificar",
+          "estado": "COMPLETED",
+          "resultado": "SUCCESS",
+          "evidencia": "https://github.com/MuriloScouris/GIA---Controle-de-Acessos/actions/runs/38759277818/job/116505983967"
+        }
+      ]
+    },
+    {
+      "pr": 18,
+      "url": "https://github.com/MuriloScouris/GIA---Controle-de-Acessos/pull/18",
+      "revisao": "b07552c40720a09d7522dd412c855230a19ea1c6",
+      "base": "main",
+      "ci": [
+        {
+          "nome": "verificar",
+          "estado": "COMPLETED",
+          "resultado": "SUCCESS",
+          "evidencia": "https://github.com/MuriloScouris/GIA---Controle-de-Acessos/actions/runs/38773768005/job/116556007861"
+        }
+      ]
+    },
+    {
+      "pr": 19,
+      "url": "https://github.com/MuriloScouris/GIA---Controle-de-Acessos/pull/19",
+      "revisao": "ecdf9105158cd9ff5fa5cda2630f21f86caa7407",
+      "base": "dev-283-docusign-producao",
+      "ci": [
+        {
+          "nome": "verificar",
+          "estado": "COMPLETED",
+          "resultado": "SUCCESS",
+          "evidencia": "https://github.com/MuriloScouris/GIA---Controle-de-Acessos/actions/runs/38777480616/job/116568765063"
+        }
+      ]
+    },
+    {
+      "pr": 20,
+      "url": "https://github.com/MuriloScouris/GIA---Controle-de-Acessos/pull/20",
+      "revisao": "865b6e334bd12caafd84d585d9b72b567a663720",
+      "base": "dev-287-dependencias",
+      "ci": [
+        {
+          "nome": "verificar",
+          "estado": "COMPLETED",
+          "resultado": "SUCCESS",
+          "evidencia": "https://github.com/MuriloScouris/GIA---Controle-de-Acessos/actions/runs/38777539998/job/116568974435"
+        }
+      ]
+    },
+    {
+      "pr": 21,
+      "url": "https://github.com/MuriloScouris/GIA---Controle-de-Acessos/pull/21",
+      "revisao": "c40a6eb62324bb366d50ab0e6dab17993514d82a",
+      "base": "main",
+      "ci": [
+        {
+          "nome": "verificar",
+          "estado": "COMPLETED",
+          "resultado": "SUCCESS",
+          "evidencia": "https://github.com/MuriloScouris/GIA---Controle-de-Acessos/actions/runs/38780667415/job/116579714445"
+        }
+      ]
+    },
+    {
+      "pr": 22,
+      "url": "https://github.com/MuriloScouris/GIA---Controle-de-Acessos/pull/22",
+      "revisao": "7d205b1e66dc89e6fe626f3c44a626ceb66a6a09",
+      "base": "dev-287-conectores-worker-controlados",
+      "ci": [
+        {
+          "nome": "verificar",
+          "estado": "COMPLETED",
+          "resultado": "SUCCESS",
+          "evidencia": "https://github.com/MuriloScouris/GIA---Controle-de-Acessos/actions/runs/38782926167/job/116587486226"
+        }
+      ]
+    },
+    {
+      "pr": 23,
+      "url": "https://github.com/MuriloScouris/GIA---Controle-de-Acessos/pull/23",
+      "revisao": "e0a89d279163bab2f1eddd5b3f46c432871b1f34",
+      "base": "main",
+      "ci": [
+        {
+          "nome": "verificar",
+          "estado": "COMPLETED",
+          "resultado": "SUCCESS",
+          "evidencia": "https://github.com/MuriloScouris/GIA---Controle-de-Acessos/actions/runs/38783551476/job/116589644321"
+        }
+      ]
+    }
+  ]
+}

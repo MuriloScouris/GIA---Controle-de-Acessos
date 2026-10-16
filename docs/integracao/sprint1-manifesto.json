@@ -1,0 +1,427 @@
+{
+  "descricao": "Commits de origem dos PRs da Sprint 1 integrados em dev-291-integracao-sprint1, na ordem de aplicação. Lido por scripts/verificar-integracao-sprint1.mjs.",
+  "ignorados": [
+    "pnpm-lock.yaml"
+  ],
+  "prs": [
+    {
+      "numero": 12,
+      "ref": "dev-281-conector-ad-producao",
+      "base": "main",
+      "head": "677f4aebc5ef9bd88d6bdb0c3e59e26e3b032eb2"
+    },
+    {
+      "numero": 13,
+      "ref": "dev-283-docusign-producao",
+      "base": "main",
+      "head": "f7d315147a59fb4c5441abfb0b15cd976159eae7"
+    },
+    {
+      "numero": 14,
+      "ref": "dev-284-conector-softexpert-producao",
+      "base": "main",
+      "head": "2be9c428efea41c04d086a8e1613d9b3f5081a0d"
+    },
+    {
+      "numero": 15,
+      "ref": "dev-285-conector-jira-producao",
+      "base": "main",
+      "head": "948f77d764690e023410d8481518456edacfd002"
+    },
+    {
+      "numero": 16,
+      "ref": "dev-280-producao-segura-observabilidade",
+      "base": "main",
+      "head": "12742e71ce8bebeaf0bbc550ec4a455a4e64d20b"
+    },
+    {
+      "numero": 17,
+      "ref": "dev-286-onboarding-e2e-validacao",
+      "base": "main",
+      "head": "6bee9ddf782656002df0b60ae9f307059f70d96b"
+    },
+    {
+      "numero": 18,
+      "ref": "dev-282-conector-m365-producao",
+      "base": "main",
+      "head": "b07552c40720a09d7522dd412c855230a19ea1c6"
+    },
+    {
+      "numero": 20,
+      "ref": "dev-287-conectores-worker-controlados",
+      "base": "dev-287-dependencias",
+      "head": "865b6e334bd12caafd84d585d9b72b567a663720"
+    },
+    {
+      "numero": 22,
+      "ref": "dev-289-preflight-producao",
+      "base": "dev-287-conectores-worker-controlados",
+      "head": "7d205b1e66dc89e6fe626f3c44a626ceb66a6a09"
+    },
+    {
+      "numero": 24,
+      "ref": "dev-292-matriz-prontidao",
+      "base": "dev-289-preflight-producao",
+      "head": "100c21c50db58fb8e0ce38332a22bc7c207c28d2"
+    },
+    {
+      "numero": 21,
+      "ref": "dev-288-login-entra-oidc",
+      "base": "main",
+      "head": "c40a6eb62324bb366d50ab0e6dab17993514d82a"
+    },
+    {
+      "numero": 23,
+      "ref": "dev-290-login-oidc-ui-legado",
+      "base": "main",
+      "head": "e0a89d279163bab2f1eddd5b3f46c432871b1f34"
+    },
+    {
+      "numero": 19,
+      "ref": "dev-283-docusign-complemento",
+      "base": "dev-283-docusign-producao",
+      "head": "ecdf9105158cd9ff5fa5cda2630f21f86caa7407"
+    }
+  ],
+  "substituicoes": [
+    {
+      "pr": 12,
+      "arquivo": "packages/conectores/README.md",
+      "motivo": "texto de estado reescrito pelos PRs seguintes com o estado consolidado (todos os transportes reais existem)"
+    },
+    {
+      "pr": 12,
+      "arquivo": "packages/conectores/src/index.ts",
+      "motivo": "comentário de cabeçalho reescrito: hoje todos os transportes reais existem"
+    },
+    {
+      "pr": 12,
+      "arquivo": "packages/conectores/src/transportes/ldap.ts",
+      "motivo": "#20 lê a senha uma única vez antes do bind (mesmo comportamento, sem reler o cofre)",
+      "cobertura": [
+        "packages/conectores/src/transportes/ad-ldap.test.ts"
+      ]
+    },
+    {
+      "pr": 13,
+      "arquivo": "packages/conectores/DOCUSIGN.md",
+      "motivo": "seção \"Integração no worker\" reescrita (#19 e DEV-291) para a composição do #20"
+    },
+    {
+      "pr": 13,
+      "arquivo": "packages/conectores/README.md",
+      "motivo": "texto de estado reescrito pelos PRs seguintes com o estado consolidado (todos os transportes reais existem)"
+    },
+    {
+      "pr": 13,
+      "arquivo": "packages/conectores/src/docusign/cliente.ts",
+      "motivo": "#19 trocou a assinatura de criarConectorDocusignDoAmbiente para receber timeouts; a função continua exportada"
+    },
+    {
+      "pr": 15,
+      "arquivo": "apps/api/src/index.ts",
+      "motivo": "origem Jira da API passou à composição (#20) e a criarLeiturasDoAmbiente (DEV-291, privilégio mínimo)",
+      "cobertura": [
+        "packages/conectores/src/composicao.test.ts"
+      ]
+    },
+    {
+      "pr": 15,
+      "arquivo": "apps/api/src/jira-cloud.test.ts",
+      "motivo": "DEV-291: o teste declara GIA_AUTH_SIMULADA, exigido pelo #21 fora de desenvolvimento"
+    },
+    {
+      "pr": 15,
+      "arquivo": "apps/worker/src/index.ts",
+      "motivo": "roteamento Jira do #15 substituído por criarIntegracoesDoAmbiente + aplicarGatesDeEscrita (#20)",
+      "cobertura": [
+        "apps/worker/src/integracoes.test.ts",
+        "apps/worker/src/jira-cloud.test.ts"
+      ]
+    },
+    {
+      "pr": 15,
+      "arquivo": "apps/worker/src/jira-cloud.test.ts",
+      "motivo": "montarConectores(politica, env) do #15 virou a composição do #20; o teste usa a nova montagem"
+    },
+    {
+      "pr": 15,
+      "arquivo": "packages/conectores/README.md",
+      "motivo": "texto de estado reescrito pelos PRs seguintes com o estado consolidado (todos os transportes reais existem)"
+    },
+    {
+      "pr": 15,
+      "arquivo": "packages/conectores/src/index.ts",
+      "motivo": "comentário de cabeçalho reescrito: hoje todos os transportes reais existem"
+    },
+    {
+      "pr": 15,
+      "arquivo": "packages/conectores/src/jira/ambiente.ts",
+      "motivo": "imports reorganizados pelo #20 (mesmos símbolos)"
+    },
+    {
+      "pr": 16,
+      "arquivo": "README.md",
+      "motivo": "texto de estado reescrito pelos PRs seguintes com o estado consolidado (todos os transportes reais existem)"
+    },
+    {
+      "pr": 16,
+      "arquivo": "apps/api/src/index.ts",
+      "motivo": "montagem da API recebe as leituras (#20/DEV-291) e a autenticação (#21)"
+    },
+    {
+      "pr": 16,
+      "arquivo": "apps/api/src/smoke.test.ts",
+      "motivo": "DEV-291: o caso fora de produção declara a autenticação simulada, exigida pelo #21"
+    },
+    {
+      "pr": 16,
+      "arquivo": "apps/worker/src/index.ts",
+      "motivo": "#20 tornou conectoresReaisDoAmbiente assíncrono (lê os segredos do cofre)"
+    },
+    {
+      "pr": 16,
+      "arquivo": "apps/worker/src/reais.ts",
+      "motivo": "o stub vazio do #16 foi substituído pela composição real do #20, como o próprio comentário previa",
+      "cobertura": [
+        "apps/worker/src/integracoes.test.ts"
+      ]
+    },
+    {
+      "pr": 16,
+      "arquivo": "docs/operacao/producao.md",
+      "motivo": "DEV-291 (revisão do #25): pendências desatualizadas trocadas pelo estado real (OIDC e conectores existem, sem validação real)"
+    },
+    {
+      "pr": 16,
+      "arquivo": "packages/contratos/src/producao.test.ts",
+      "motivo": "#20 endureceu a comprovação de origem dos segredos; o caso equivalente está no teste de integração de segredos",
+      "cobertura": [
+        "packages/contratos/src/segredos-integracao.test.ts"
+      ]
+    },
+    {
+      "pr": 16,
+      "arquivo": "packages/contratos/src/segredos.ts",
+      "motivo": "#20 endureceu: caminho declarado não legitima valor inline; GIA_JIRA_API_TOKEN entrou em SEGREDOS_EM_ARQUIVO"
+    },
+    {
+      "pr": 20,
+      "arquivo": "apps/api/src/index.ts",
+      "motivo": "DEV-291 (revisão do #25): API usa criarLeiturasDoAmbiente em vez de criarIntegracoesDoAmbiente (privilégio mínimo)",
+      "cobertura": [
+        "packages/conectores/src/composicao.test.ts"
+      ]
+    },
+    {
+      "pr": 20,
+      "arquivo": "packages/conectores/src/composicao.test.ts",
+      "motivo": "DEV-291: imports ampliados para os testes de criarLeiturasDoAmbiente"
+    },
+    {
+      "pr": 20,
+      "arquivo": "packages/conectores/src/composicao.ts",
+      "motivo": "#22 (empilhado) injeta o transporte (criarFetchComPrazo) e devolve amostraJira"
+    },
+    {
+      "pr": 20,
+      "arquivo": "packages/conectores/src/prazo.ts",
+      "motivo": "#22 (empilhado) transformou fetchComPrazo em fábrica com transporte injetável"
+    },
+    {
+      "pr": 21,
+      "arquivo": "apps/api/README.md",
+      "motivo": "DEV-291 (revisão do #25): login simulado fail-closed sem GIA_AMBIENTE declarado"
+    },
+    {
+      "pr": 21,
+      "arquivo": "apps/api/src/index.ts",
+      "motivo": "autenticação passou para a montagem composta (#16/#20) em criarAppDoAmbiente"
+    },
+    {
+      "pr": 21,
+      "arquivo": "apps/api/src/oidc.test.ts",
+      "motivo": "DEV-291 (revisão do #25): casos ajustados para GIA_AMBIENTE declarado e novos casos fail-closed"
+    },
+    {
+      "pr": 21,
+      "arquivo": "apps/api/src/sessao/autenticacao-ambiente.ts",
+      "motivo": "DEV-291 (revisão do #25): sessão simulada exige GIA_AMBIENTE declarado"
+    },
+    {
+      "pr": 19,
+      "arquivo": "apps/worker/src/docusign.ts",
+      "motivo": "roteamento DocuSign substituído pelo #20 (o próprio arquivo previa isso); casos portados",
+      "cobertura": [
+        "apps/worker/src/docusign-composicao.test.ts",
+        "apps/worker/src/gates.ts"
+      ],
+      "removido": true
+    },
+    {
+      "pr": 19,
+      "arquivo": "apps/worker/src/docusign-worker.test.ts",
+      "motivo": "testes do docusign.ts portados para a composição do #20",
+      "cobertura": [
+        "apps/worker/src/docusign-composicao.test.ts"
+      ],
+      "removido": true
+    },
+    {
+      "pr": 19,
+      "arquivo": "apps/worker/src/index.ts",
+      "motivo": "composição do #20 no lugar de comDocusignReal/montarDocusignReal",
+      "cobertura": [
+        "apps/worker/src/docusign-composicao.test.ts"
+      ]
+    },
+    {
+      "pr": 19,
+      "arquivo": "packages/conectores/DOCUSIGN.md",
+      "motivo": "seção \"Integração no worker\" reescrita para a composição do #20"
+    },
+    {
+      "pr": 24,
+      "arquivo": "docs/operacao/dev-292-prontidao.md",
+      "motivo": "DEV-291 (2ª revisão do #25): texto dizia que a integração DEV-291 estava pendente; ela foi feita"
+    },
+    {
+      "pr": 24,
+      "arquivo": "apps/worker/src/prontidao/catalogo.ts",
+      "motivo": "DEV-291 (2ª revisão do #25): textos de oidc.integracaoUi e global.integracao refletem a integração feita; itens seguem pendentes",
+      "cobertura": [
+        "apps/worker/src/prontidao/prontidao.test.ts"
+      ]
+    }
+  ],
+  "ajustesIntegracao": [
+    {
+      "arquivo": "apps/api/README.md",
+      "motivo": "DEV-291: login fail-closed e leituras com privilégio mínimo"
+    },
+    {
+      "arquivo": "apps/api/src/jira-cloud.test.ts",
+      "motivo": "DEV-291: GIA_AUTH_SIMULADA exigido pelo #21"
+    },
+    {
+      "arquivo": "apps/api/src/oidc.test.ts",
+      "motivo": "DEV-291: casos fail-closed"
+    },
+    {
+      "arquivo": "apps/api/src/sessao/autenticacao-ambiente.ts",
+      "motivo": "DEV-291: sessão simulada exige GIA_AMBIENTE declarado"
+    },
+    {
+      "arquivo": "apps/api/src/smoke.test.ts",
+      "motivo": "DEV-291: autenticação simulada declarada no caso fora de produção"
+    },
+    {
+      "arquivo": "apps/worker/src/docusign-composicao.test.ts",
+      "motivo": "DEV-291: casos do #19 sobre a composição do #20"
+    },
+    {
+      "arquivo": "docs/integracao/sprint1-dev291.md",
+      "motivo": "DEV-291: documentação da integração"
+    },
+    {
+      "arquivo": "docs/integracao/sprint1-manifesto.json",
+      "motivo": "DEV-291: este manifesto"
+    },
+    {
+      "arquivo": "scripts/verificar-integracao-sprint1.mjs",
+      "motivo": "DEV-291: este verificador"
+    },
+    {
+      "arquivo": "docs/operacao/producao.md",
+      "motivo": "DEV-291: runbook atualizado (revisão do #25)"
+    },
+    {
+      "arquivo": "packages/conectores/src/composicao.test.ts",
+      "motivo": "DEV-291: testes de criarLeiturasDoAmbiente"
+    },
+    {
+      "arquivo": "packages/conectores/src/composicao.ts",
+      "motivo": "DEV-291: criarLeiturasDoAmbiente (privilégio mínimo da API)"
+    },
+    {
+      "arquivo": "packages/persistencia/package.json",
+      "motivo": "DEV-291: migrar usa o resolvedor de segredos de @gia/contratos"
+    },
+    {
+      "arquivo": "packages/persistencia/src/index.test.ts",
+      "motivo": "DEV-291: ADR-0003 aceita o pacote interno @gia/contratos"
+    },
+    {
+      "arquivo": "packages/persistencia/src/migrar.test.ts",
+      "motivo": "DEV-291: testes de GIA_DATABASE_URL_ARQUIVO"
+    },
+    {
+      "arquivo": "packages/persistencia/src/migrar.ts",
+      "motivo": "DEV-291: migrar lê GIA_DATABASE_URL_ARQUIVO"
+    },
+    {
+      "arquivo": "docs/operacao/dev-292-prontidao.md",
+      "motivo": "DEV-291: integração deixou de ser pendente no texto"
+    },
+    {
+      "arquivo": "apps/worker/src/prontidao/catalogo.ts",
+      "motivo": "DEV-291: textos da integração atualizados (itens seguem pendentes)"
+    },
+    {
+      "arquivo": "docs/operacao/pendencias-medias-sprint1.md",
+      "motivo": "DEV-291: registro formal dos 10 itens médios da revisão"
+    },
+    {
+      "arquivo": "tests/e2e/verificador-integracao.test.ts",
+      "motivo": "DEV-291: teste de mutação (backdoor) do verificador"
+    }
+  ],
+  "conflitosPorUniao": [
+    "README.md",
+    "apps/api/src/index.ts",
+    "apps/worker/src/index.ts",
+    "packages/conectores/README.md",
+    "packages/conectores/package.json",
+    "packages/conectores/src/index.ts",
+    "packages/contratos/src/index.ts"
+  ],
+  "blobs": {
+    "README.md": "86b29e9a20fb3660ba5e1befe690f5b2bcba4c86",
+    "apps/api/README.md": "61c6801b0ed67c1a75f0037dbd697052766c493d",
+    "apps/api/src/index.ts": "5bd756ed34233710f3567bfa8da5c25a3f998f58",
+    "apps/api/src/jira-cloud.test.ts": "0adf1fa81cc733d0272565fb0629055ccb33ccc9",
+    "apps/api/src/oidc.test.ts": "323a9d34117f0effc394c34e77d99da0bd06d861",
+    "apps/api/src/sessao/autenticacao-ambiente.ts": "d8071980d450c5602390ebd667fc919421495496",
+    "apps/api/src/smoke.test.ts": "4c7646d9e166cfcae13c6cd8eb36e80d3a936baf",
+    "apps/worker/src/docusign-composicao.test.ts": "2a3bdc80fb63b150bf5bf51aaefd40e646981112",
+    "apps/worker/src/docusign-worker.test.ts": null,
+    "apps/worker/src/docusign.ts": null,
+    "apps/worker/src/index.ts": "a1c9e3755ab9093d27bd2a5f2dfe42c1b7b5929d",
+    "apps/worker/src/jira-cloud.test.ts": "7c4ff0c8d46454a782f004860cac1f73dbaf35f1",
+    "apps/worker/src/prontidao/catalogo.ts": "dde7a90631e8c2c8e73487c31cfc5a557daec66a",
+    "apps/worker/src/reais.ts": "2ff49d8a20fbefa3dc4b567784e2cdbaf404c843",
+    "docs/integracao/sprint1-dev291.md": "68509d4477f5de4ca82b6949d484492fad391ddb",
+    "docs/operacao/dev-292-prontidao.md": "b469f0fe76411bafd94c6ff197778dbde650064e",
+    "docs/operacao/pendencias-medias-sprint1.md": "59e5df8bc3cb096eab501c50e3f38f5638105853",
+    "docs/operacao/producao.md": "1b615491894c31a29e82a708a42c968a1c4e2c05",
+    "packages/conectores/DOCUSIGN.md": "712a98be84f64e37d2bc73e7dad0a8bc7e930727",
+    "packages/conectores/README.md": "5915678c338626634684e8d08c96389b7be48ab0",
+    "packages/conectores/package.json": "1ac2f715876bdb52cefbfe303794ddd618ee3695",
+    "packages/conectores/src/composicao.test.ts": "a959549b82729894e505ce9ab89fdd2eeba44d16",
+    "packages/conectores/src/composicao.ts": "b823a27cacadbd5666e49a4889d33df7177c8051",
+    "packages/conectores/src/docusign/cliente.ts": "37ec7b84a9276dd710ccb9ec477c5c2039cdb9ea",
+    "packages/conectores/src/index.ts": "cb2ce38db7bd360a6ce060d65b26b1777a5da11e",
+    "packages/conectores/src/jira/ambiente.ts": "203487071a7d993ded80151576b860b7c7fa5d25",
+    "packages/conectores/src/prazo.ts": "5f0f0b15177f4936ee8eb78d0cce46f11665f23c",
+    "packages/conectores/src/transportes/ldap.ts": "38ba124105cf54f2290eec5b66d31b3b996ca8c0",
+    "packages/contratos/src/index.ts": "339c17b4eb375cd0206356e07ba63c01c7b462cc",
+    "packages/contratos/src/producao.test.ts": "b60b891e3a23dbf468e6e63d0923c9a35bfc95a6",
+    "packages/contratos/src/segredos.ts": "5913d41f759204d074da4bafe3ea78df149bbd44",
+    "packages/persistencia/package.json": "3ac54943d3d9a81d9d536f45993cfc18e41591bc",
+    "packages/persistencia/src/index.test.ts": "7f36f7b62d97668f7f013bafb9ceaa2bd0737890",
+    "packages/persistencia/src/migrar.test.ts": "1d2eeefc27545ebb6eb40e433db1a0919e4dad1d",
+    "packages/persistencia/src/migrar.ts": "cba41df4939220124c1918193bff2440cf37c7a3",
+    "scripts/verificar-integracao-sprint1.mjs": "30efb0a4f615dc9c2b79385dbcb9133b3497979c",
+    "tests/e2e/verificador-integracao.test.ts": "d8d9736ee72947a3fbfe7f7752334a2daff19c34"
+  }
+}

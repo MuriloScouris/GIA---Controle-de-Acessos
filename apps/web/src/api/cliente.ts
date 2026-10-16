@@ -1,5 +1,6 @@
 import {
   listaPedidosSchema,
+  historicoPedidoSchema,
   pedidoDetalheSchema,
   respostaErroSchema,
   respostaSucessoSchema,
@@ -8,6 +9,7 @@ import {
   sessaoRespostaSchema,
   type Comando,
   type ListaPedidos,
+  type HistoricoPedido,
   type PapelHumano,
   type PedidoDetalhe,
   type RespostaSucesso,
@@ -40,6 +42,32 @@ export type ComandoDoPedido = Comando extends infer C
     ? Omit<C, 'pedidoId' | 'versaoEsperada'>
     : never
   : never;
+
+/** Como as pessoas entram, segundo o servidor (`GET /sessao/modo`). */
+export type ModoSessao = 'oidc' | 'simulada' | 'indisponivel';
+
+/** Hosts para onde o logout pode levar o navegador (o logout do Entra ID). */
+const HOSTS_DE_LOGOUT = ['login.microsoftonline.com'];
+
+function lerModo(dado: unknown): ModoSessao {
+  const modo = (dado as { modo?: unknown } | null)?.modo;
+  if (modo === 'oidc' || modo === 'simulada' || modo === 'indisponivel') return modo;
+  throw new Error('modo desconhecido');
+}
+
+/** URL de logout do Entra ID, ou `null` se a resposta apontar para outro lugar. */
+function lerLogout(dado: unknown): string | null {
+  const url = (dado as { redirecionarPara?: unknown } | null)?.redirecionarPara;
+  if (typeof url !== 'string') return null;
+  try {
+    const lida = new URL(url);
+    return lida.protocol === 'https:' && HOSTS_DE_LOGOUT.includes(lida.host)
+      ? lida.toString()
+      : null;
+  } catch {
+    return null;
+  }
+}
 
 /** Cliente da API do GIA: toda resposta é validada pelos esquemas de `@gia/contratos`. */
 export function criarClienteApi(baseUrl = '', fetcher: Fetcher = (u, i) => fetch(u, i)) {
@@ -110,11 +138,54 @@ export function criarClienteApi(baseUrl = '', fetcher: Fetcher = (u, i) => fetch
       await pedir('/sessao', { method: 'DELETE', headers: { ...CABECALHO_CSRF } });
     },
 
+    /** Qual login oferecer. Falha de rede ou resposta estranha é `indisponivel`: nunca cai na simulada. */
+    modoSessao: async (): Promise<ModoSessao> => {
+      try {
+        return lerModo(await (await pedir('/sessao/modo', {})).json());
+      } catch {
+        return 'indisponivel';
+      }
+    },
+
+    /** Sessão aberta no servidor, ou `null` sem sessão (401). */
+    sessaoAtual: async (): Promise<SessaoResposta | null> => {
+      const resposta = await pedir('/sessao', {});
+      if (resposta.status === 401) return null;
+      return ler(resposta, (d) => sessaoRespostaSchema.parse(d), 'Falha ao consultar a sessão');
+    },
+
+    /** Endereço que leva ao login do Entra ID; o retorno é sempre um caminho local. */
+    urlEntrarOidc: (retorno: string): string =>
+      `${baseUrl}/sessao/oidc/entrar?retorno=${encodeURIComponent(retorno)}`,
+
+    /**
+     * Logout OIDC por POST com CSRF: o servidor encerra a sessão local e devolve o
+     * logout do Entra ID. Só um destino do Entra ID é aceito.
+     */
+    sairOidc: async (): Promise<string | null> => {
+      const resposta = await pedir('/sessao/oidc/sair', {
+        method: 'POST',
+        headers: { ...CABECALHO_CSRF },
+      });
+      if (!resposta.ok) return null;
+      try {
+        return lerLogout(await resposta.json());
+      } catch {
+        return null;
+      }
+    },
+
     listarPedidos: (): Promise<ListaPedidos> =>
       obter('/pedidos', (d) => listaPedidosSchema.parse(d)),
 
     detalharPedido: (pedidoId: string): Promise<PedidoDetalhe> =>
       obter(`/pedidos/${encodeURIComponent(pedidoId)}`, (d) => pedidoDetalheSchema.parse(d)),
+
+    consultarHistorico: (pedidoId: string, cursor?: string): Promise<HistoricoPedido> =>
+      obter(
+        `/pedidos/${encodeURIComponent(pedidoId)}/historico${cursor === undefined ? '' : `?cursor=${encodeURIComponent(cursor)}`}`,
+        (d) => historicoPedidoSchema.parse(d),
+      ),
 
     importarDoJira: (): Promise<ResultadoImportacao> =>
       enviar(
@@ -125,17 +196,35 @@ export function criarClienteApi(baseUrl = '', fetcher: Fetcher = (u, i) => fetch
       ),
 
     /** O ator vem da sessão no servidor; o comando leva só o pedido, a versão vista e os dados. */
-    executarComando: (
+    executarComando: async (
       pedidoId: string,
       versaoEsperada: number,
       comando: ComandoDoPedido,
-    ): Promise<RespostaSucesso> =>
-      enviar(
-        `/pedidos/${encodeURIComponent(pedidoId)}/comandos`,
-        { ...comando, pedidoId, versaoEsperada },
-        (d) => respostaSucessoSchema.parse(d),
-        'Não foi possível executar a ação',
-      ),
+    ): Promise<RespostaSucesso> => {
+      try {
+        return await enviar(
+          `/pedidos/${encodeURIComponent(pedidoId)}/comandos`,
+          { ...comando, pedidoId, versaoEsperada },
+          (d) => respostaSucessoSchema.parse(d),
+          'Não foi possível executar a ação',
+        );
+      } catch (erro) {
+        // A API pode ter confirmado a transação antes de perder a resposta.
+        if (
+          erro instanceof ErroApi &&
+          (erro.status === undefined ||
+            erro.status >= 500 ||
+            (erro.status >= 200 && erro.status < 300))
+        ) {
+          throw new ErroApi(
+            'Não foi possível confirmar o resultado da ação. Confira o pedido antes de tentar novamente.',
+            erro.status,
+            'RESULTADO_DESCONHECIDO',
+          );
+        }
+        throw erro;
+      }
+    },
   };
 }
 

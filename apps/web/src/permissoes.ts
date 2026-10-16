@@ -1,10 +1,10 @@
 import { autorizar, type AcaoFuncional } from '@gia/dominio';
-import type { PerfilDemo } from './sessao/perfis.js';
+import type { UsuarioSessao } from './sessao/Sessao.js';
 
 /**
- * Só decide o que MOSTRAR: a matriz é a do domínio. O servidor revalida cada
- * comando e é quem de fato autoriza (regra 13).
+ * Só decide o que MOSTRAR: a matriz é a do domínio, sobre todos os papéis da
+ * sessão. O servidor revalida cada comando e é quem de fato autoriza (regra 13).
  */
-export function podeFazer(perfil: PerfilDemo | null, acao: AcaoFuncional): boolean {
-  return perfil !== null && autorizar([perfil.id], acao).ok;
+export function podeFazer(usuario: UsuarioSessao | null, acao: AcaoFuncional): boolean {
+  return usuario !== null && autorizar([...usuario.papeis], acao).ok;
 }

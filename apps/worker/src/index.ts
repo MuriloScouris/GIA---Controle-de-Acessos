@@ -1,12 +1,37 @@
 import { randomUUID } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
-import type { VariaveisAmbiente } from '@gia/contratos';
-import { criarCatalogoSimulado, type CatalogoSimulado } from '@gia/conectores';
-import type { PoliticaExecucao } from '@gia/dominio';
+import {
+  ErroConfiguracao,
+  RegistroMetricas,
+  carregarGatesDeEscrita,
+  criarRegistrador,
+  exigirSegredosForaDoAmbiente,
+  liberacaoDosGates,
+  nivelDeLog,
+  portaDeMetricas,
+  resolverSegredosDeArquivo,
+  servirMetricas,
+  type GatesDeEscrita,
+  type VariaveisAmbiente,
+} from '@gia/contratos';
+import {
+  criarCatalogoSimulado,
+  carregarSelecaoIntegracoes,
+  type CatalogoSimulado,
+} from '@gia/conectores';
+import { configuracaoPadrao, type PoliticaExecucao } from '@gia/dominio';
 import { criarBanco, criarPersistenciaPostgres, urlDoBanco } from '@gia/persistencia';
 import { executarCiclo } from './ciclo.js';
 import { carregarConfiguracaoWorker } from './configuracao.js';
 import { criarExecutor } from './executor.js';
+import { aplicarGatesDeEscrita } from './gates.js';
+import {
+  VARIAVEL_ARQUIVO_SAUDE,
+  VARIAVEL_METRICAS_PORTA,
+  criarObservabilidadeWorker,
+  registrarBatimento,
+} from './observabilidade.js';
+import { conectoresReaisDoAmbiente } from './reais.js';
 
 export {
   carregarConfiguracaoWorker,
@@ -17,6 +42,14 @@ export {
 export type { ConfiguracaoWorker } from './configuracao.js';
 
 export { executarCiclo } from './ciclo.js';
+export {
+  CODIGO_CONECTOR_REAL_INDISPONIVEL,
+  CODIGO_ESCRITA_NAO_LIBERADA,
+  ConectorRealIndisponivel,
+  aplicarGatesDeEscrita,
+} from './gates.js';
+export type { ConectoresReais, DecisaoGate } from './gates.js';
+export { registrarBatimento, verificarBatimento } from './observabilidade.js';
 export type { OpcoesCiclo } from './ciclo.js';
 export {
   CODIGO_ACAO_NAO_SUPORTADA,
@@ -42,51 +75,104 @@ export function montarConectores(politica: PoliticaExecucao): CatalogoSimulado {
   });
 }
 
-/** Valida a configuração e descreve como o worker vai rodar. */
+function descreverEscrita(gates: GatesDeEscrita): string {
+  if (!gates.escritaExterna) return 'escrita externa desligada';
+  const liberadas = gates.liberadas.length === 0 ? 'nenhuma liberada' : gates.liberadas.join(', ');
+  return `escrita externa LIGADA: ${liberadas}`;
+}
+
+/** Valida a configuração (inclusive gates e segredos) e descreve como o worker vai rodar. */
 export function iniciar(env: VariaveisAmbiente = process.env): string {
   const config = carregarConfiguracaoWorker(env);
-  return `worker pronto (${config.ambiente}, escrita externa desligada)`;
+  exigirSegredosForaDoAmbiente(env);
+  const gates = carregarGatesDeEscrita(env);
+  carregarSelecaoIntegracoes(env);
+  if (portaDeMetricas(env[VARIAVEL_METRICAS_PORTA]) === 'invalida') {
+    throw new ErroConfiguracao([VARIAVEL_METRICAS_PORTA]);
+  }
+  return `worker pronto (${config.ambiente}, ${descreverEscrita(gates)})`;
 }
 
 /** Sobe o worker sobre o PostgreSQL até `sinal` ser abortado. */
 export async function executarWorker(
-  env: VariaveisAmbiente,
+  envOriginal: VariaveisAmbiente,
   sinal: AbortSignal,
   registrar: (linha: string) => void = console.log,
 ): Promise<void> {
+  // Segredos por valor são checados no ambiente recebido, antes de ler os arquivos do cofre.
+  const descricao = iniciar(envOriginal);
+  const env = await resolverSegredosDeArquivo(envOriginal);
   const config = carregarConfiguracaoWorker(env);
-  const db = criarBanco({ url: urlDoBanco(env) });
+  const gates = carregarGatesDeEscrita(env);
+
   const politica = config.politica;
+  const log = criarRegistrador({
+    servico: 'worker',
+    ambiente: config.ambiente,
+    nivelMinimo: nivelDeLog(env['GIA_LOG_NIVEL']),
+    saida: registrar,
+  }).filho({ workerId: config.workerId });
+  const metricas = new RegistroMetricas();
+  const obs = criarObservabilidadeWorker(log, metricas);
+  const reais = await conectoresReaisDoAmbiente(env, politica, (evento) =>
+    log.info('integracao_chamada', { ...evento }),
+  );
+  const db = criarBanco({ url: urlDoBanco(env) });
+  const arquivoSaude = env[VARIAVEL_ARQUIVO_SAUDE]?.trim() || null;
+  const portaMetricas = portaDeMetricas(env[VARIAVEL_METRICAS_PORTA]);
+  const servidorMetricas =
+    typeof portaMetricas === 'number'
+      ? await servirMetricas(metricas, { porta: portaMetricas })
+      : null;
+  const batimento = () => {
+    if (arquivoSaude === null) return;
+    registrarBatimento(arquivoSaude, Date.now()).catch(() => log.aviso('batimento_falhou'));
+  };
   try {
     const executor = criarExecutor({
-      persistencia: criarPersistenciaPostgres(db),
-      conectores: montarConectores(politica).conectores,
+      persistencia: criarPersistenciaPostgres(db, {
+        configuracao: { ...configuracaoPadrao(), liberacaoEscrita: liberacaoDosGates(gates) },
+      }),
+      conectores: aplicarGatesDeEscrita(
+        montarConectores(politica).conectores,
+        reais,
+        gates,
+        obs.aoDecidirGate,
+      ),
       politica,
       limitePorSistema: config.limitePorSistema,
       workerId: config.workerId,
       agora: () => new Date().toISOString(),
       novoId: randomUUID,
     });
-    registrar(`${iniciar(env)}: ${config.workerId}`);
+    // Auditoria operacional: o estado dos gates fica registrado em toda partida.
+    log.info('worker_iniciado', {
+      descricao,
+      escritaExterna: gates.escritaExterna,
+      escritaLiberada: [...gates.liberadas],
+      conectoresReais: Object.keys(reais).sort(),
+      metricas: servidorMetricas !== null,
+      batimento: arquivoSaude !== null,
+    });
+    batimento();
     await executarCiclo(executor, {
       intervaloMs: config.intervaloMs,
       sinal,
-      // Só contagens: nada de dado pessoal ou parâmetro no log.
+      // Só identificadores, contagens e códigos: nada de dado pessoal ou parâmetro no log.
       aoTerminarLote: (r) => {
-        if (r.reservadas + r.recuperadas.reagendadas + r.recuperadas.paraReconciliacao === 0)
-          return;
-        const contar = (tipo: string) => r.desfechos.filter((d) => d.tipo === tipo).length;
-        registrar(
-          `lote: ${r.reservadas} reservadas, ${contar('registrada')} registradas, ` +
-            `${contar('descartada')} descartadas, ${contar('naoGravada')} não gravadas, ` +
-            `${contar('naoExecutada')} não executadas (lease perdido), ` +
-            `${r.recuperadas.reagendadas} reagendadas e ` +
-            `${r.recuperadas.paraReconciliacao} para reconciliação por lease vencido`,
-        );
+        obs.aoTerminarLote(r, Date.now());
+        batimento();
       },
-      aoFalhar: (erro) => registrar(`lote falhou: ${erro instanceof Error ? erro.name : 'erro'}`),
+      aoFalhar: (erro) => {
+        obs.aoFalharLote(erro);
+        batimento();
+      },
     });
+    log.info('worker_encerrado');
   } finally {
+    if (servidorMetricas !== null) {
+      await new Promise((resolver) => servidorMetricas.close(resolver));
+    }
     await db.destroy();
   }
 }

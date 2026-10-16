@@ -10,6 +10,7 @@ import { DialogoConfirmacao } from '../componentes/DialogoConfirmacao.js';
 import { ErroCarga } from '../componentes/ErroCarga.js';
 import { IconeChaveQuadrada } from '../componentes/Icones.js';
 import { LinhaDoTempoPedido } from '../componentes/LinhaDoTempoPedido.js';
+import { HistoricoPedido } from '../componentes/HistoricoPedido.js';
 import { SeloStatus, tomDoStatusItem, tomDoStatusPedido } from '../componentes/SeloStatus.js';
 import { podeFazer } from '../permissoes.js';
 import {
@@ -72,32 +73,60 @@ function Campo({ rotulo, children }: { rotulo: string; children: ReactNode }) {
   );
 }
 
-/** Seção no padrão do draft: faixa de cabeçalho com quadradinho colorido e corpo em papel. */
+const CLASSE_DA_COR = {
+  azul: 'tab-azul',
+  amarelo: 'tab-amarelo',
+  roxo: 'tab-lilas',
+  vermelho: 'tab-vermelho',
+  ciano: 'tab-ciano',
+} as const;
+
+/** Pasta do GIA antigo: faixa de título com o quadradinho da seção e corpo em papel. */
 function Secao({
   id,
   titulo,
   cor,
   extra,
   semPadding = false,
+  className,
   children,
 }: {
   id: string;
   titulo: string;
-  cor: 'azul' | 'roxo' | 'vermelho' | 'ciano';
+  cor: keyof typeof CLASSE_DA_COR;
   extra?: string;
   semPadding?: boolean;
+  className?: string;
   children: ReactNode;
 }) {
   return (
-    <section className="secao" aria-labelledby={id}>
-      <div className="secao-topo">
-        <h2 id={id} className={`secao-titulo ${cor}`}>
+    <section className={className ? `pasta ${className}` : 'pasta'} aria-labelledby={id}>
+      <div className="pasta-topo">
+        <h2 id={id} className={`pasta-tab ${CLASSE_DA_COR[cor]}`}>
           {titulo}
         </h2>
-        {extra && <span className="secao-extra">{extra}</span>}
+        {extra && <span className="pasta-extra">{extra}</span>}
       </div>
-      <div className={semPadding ? 'secao-corpo sem-padding' : 'secao-corpo'}>{children}</div>
+      <div className={semPadding ? 'pasta-corpo' : 'pasta-corpo com-padding'}>{children}</div>
     </section>
+  );
+}
+
+/** Iniciais do sistema no chip colorido, como o sys-chip do GIA antigo. */
+const CHIP_DO_SISTEMA: Readonly<Record<Sistema, readonly [string, string]>> = {
+  ad: ['AD', 'sys-ad'],
+  m365: ['MS', 'sys-ms'],
+  docusign: ['DS', 'sys-ds'],
+  softexpert: ['SE', 'sys-se'],
+  jira: ['JR', 'sys-jr'],
+};
+
+function ChipSistema({ sistema }: { sistema: Sistema }) {
+  const [sigla, classe] = CHIP_DO_SISTEMA[sistema];
+  return (
+    <span className={`sys-chip ${classe}`} aria-hidden="true">
+      {sigla}
+    </span>
   );
 }
 
@@ -123,8 +152,7 @@ function iniciaisDe(nome: string): string {
 
 function ResultadoDoItem({ item }: { item: ResultadoItem }) {
   return (
-    <div>
-      <SeloStatus rotulo={ROTULO_STATUS_ITEM[item.status]} tom={tomDoStatusItem(item.status)} />
+    <div className="item-resultado">
       {item.etapaAlcancada && <p className="texto-suave">Última etapa: {item.etapaAlcancada}</p>}
       {item.mensagem && <p>{item.mensagem}</p>}
       {item.idExterno && <p className="texto-suave">ID no destino: {item.idExterno}</p>}
@@ -133,7 +161,7 @@ function ResultadoDoItem({ item }: { item: ResultadoItem }) {
       )}
       {item.observacaoManual && <p>Registro manual: {item.observacaoManual}</p>}
       {item.status === 'desconhecido' && (
-        <p role="note" className="aviso-inline">
+        <p role="note" className="alert alert-warning">
           Resultado desconhecido: confira o destino antes de tentar de novo. A interface nunca
           repete uma escrita sozinha.
         </p>
@@ -179,7 +207,7 @@ function TelaPedido({ pedidoId }: { pedidoId: string }) {
 
   if (estado.situacao === 'carregando') {
     return (
-      <div className="estado">
+      <div className="estado estado-carregando">
         <p role="status">Carregando pedido…</p>
         <div className="esqueleto" aria-hidden="true">
           <span className="esqueleto-linha" />
@@ -192,8 +220,14 @@ function TelaPedido({ pedidoId }: { pedidoId: string }) {
   if (estado.situacao === 'erro') {
     return (
       <>
-        <Link to="/">Voltar ao painel</Link>
-        <ErroCarga erro={estado.erro} onTentarDeNovo={recarregar} />
+        <nav aria-label="Navegação estrutural" className="det-voltar">
+          <Link to="/">Voltar ao painel</Link>
+        </nav>
+        <div className="pasta">
+          <div className="pasta-corpo">
+            <ErroCarga erro={estado.erro} onTentarDeNovo={recarregar} />
+          </div>
+        </div>
       </>
     );
   }
@@ -242,7 +276,10 @@ function TelaPedido({ pedidoId }: { pedidoId: string }) {
       );
       recarregar();
     } catch (erro) {
-      if (erro instanceof ErroApi && erro.codigo === 'CONFLITO_DE_VERSAO') {
+      if (
+        erro instanceof ErroApi &&
+        (erro.codigo === 'CONFLITO_DE_VERSAO' || erro.codigo === 'RESULTADO_DESCONHECIDO')
+      ) {
         setDialogo(null);
         setConflito(erro.message);
         recarregar();
@@ -260,25 +297,27 @@ function TelaPedido({ pedidoId }: { pedidoId: string }) {
         <Link to="/">← Voltar ao painel</Link>
       </nav>
       <header className="det-cabeca">
-        <div>
-          <span className="det-eyebrow">
+        <div className="det-titulo-bloco">
+          <span className="det-recurso-icone" aria-hidden="true">
             <IconeChaveQuadrada />
-            Pedido de onboarding
           </span>
-          <div className="det-codigo">
-            <code>{detalhe.id.slice(0, 8)}</code>
-            <SeloStatus
-              rotulo={ROTULO_STATUS_PEDIDO[detalhe.status]}
-              tom={tomDoStatusPedido(detalhe.status)}
-            />
+          <div>
+            <span className="workspace-kicker">Pedido de onboarding</span>
+            <div className="det-titulo-linha">
+              <code>{detalhe.id.slice(0, 8)}</code>
+              <SeloStatus
+                rotulo={ROTULO_STATUS_PEDIDO[detalhe.status]}
+                tom={tomDoStatusPedido(detalhe.status)}
+              />
+            </div>
+            <h1 className="h4">
+              Pedido {detalhe.origem.idExterno} — {detalhe.dadosRh.nomeCompleto}
+            </h1>
+            <p className="text-muted">
+              {ROTULO_VINCULO[detalhe.tipoVinculo]} · versão {detalhe.versao} · atualizado em{' '}
+              {formatarInstante(detalhe.atualizadoEm)}
+            </p>
           </div>
-          <h1 className="det-titulo">
-            Pedido {detalhe.origem.idExterno} — {detalhe.dadosRh.nomeCompleto}
-          </h1>
-          <p className="det-subtitulo">
-            {ROTULO_VINCULO[detalhe.tipoVinculo]} · versão {detalhe.versao} · atualizado em{' '}
-            {formatarInstante(detalhe.atualizadoEm)}
-          </p>
         </div>
         <div className="det-pessoa">
           <span className="det-pessoa-avatar" aria-hidden="true">
@@ -291,38 +330,40 @@ function TelaPedido({ pedidoId }: { pedidoId: string }) {
         </div>
       </header>
       {(conflito !== null || obsoleta) && (
-        <p role="alert" className="mensagem-erro">
+        <p role="alert" className="alert alert-danger">
           {conflito ?? 'O pedido foi alterado enquanto a confirmação estava aberta.'} Revise o
           pedido atualizado e confirme a ação de novo.
         </p>
       )}
       {acompanhar(detalhe) && (
-        <p role="status" className="aviso-inline">
+        <p role="status" className="alert alert-info">
           Execução em andamento: o resultado por item é atualizado automaticamente.
         </p>
       )}
       {atualizacaoFalhou && (
-        <p role="status" className="aviso-inline">
+        <p role="status" className="alert alert-warning">
           Não foi possível atualizar agora; exibindo dados anteriores, que podem estar
           desatualizados.
         </p>
       )}
       {detalhe.status === 'concluidoComErros' && (
-        <p role="note" className="aviso-inline">
+        <p role="note" className="alert alert-danger">
           Concluído com erros: sucesso parcial não é conclusão. Reprocesse só o que falta ou
           registre o acesso manual.
         </p>
       )}
-      {detalhe.motivoRejeicao && <p>Motivo da rejeição: {detalhe.motivoRejeicao}</p>}
+      {detalhe.motivoRejeicao && (
+        <p className="alert alert-warning">Motivo da rejeição: {detalhe.motivoRejeicao}</p>
+      )}
       {aviso && (
-        <p role="status" className="aviso-sucesso">
+        <p role="status" className="alert alert-success">
           {aviso}
         </p>
       )}
 
       <div className="det-grade">
-        <div className="det-coluna det-col-7">
-          <Secao id="titulo-rh" titulo="Dados do RH" cor="azul">
+        <div className="det-coluna">
+          <Secao id="titulo-rh" titulo="Dados do RH" cor="amarelo">
             <dl className="grade-leitura">
               <Campo rotulo="Nome completo">{detalhe.dadosRh.nomeCompleto}</Campo>
               <Campo rotulo="CPF">{detalhe.dadosRh.cpf}</Campo>
@@ -337,9 +378,9 @@ function TelaPedido({ pedidoId }: { pedidoId: string }) {
             </dl>
           </Secao>
 
-          <Secao id="titulo-identidade" titulo="Identidade proposta" cor="azul">
+          <Secao id="titulo-identidade" titulo="Identidade proposta" cor="roxo">
             {revisao.pendenciaIdentidade && (
-              <p role="alert" className="aviso-inline">
+              <p role="alert" className="alert alert-warning">
                 Pendência: {revisao.pendenciaIdentidade.mensagem}
               </p>
             )}
@@ -384,8 +425,8 @@ function TelaPedido({ pedidoId }: { pedidoId: string }) {
           </Secao>
         </div>
 
-        <div className="det-coluna det-col-5">
-          <Secao id="titulo-ciclo" titulo="Ciclo do pedido" cor="roxo">
+        <div className="det-coluna">
+          <Secao id="titulo-ciclo" titulo="Ciclo do pedido" cor="azul">
             <ol className="ciclo">
               {ETAPAS_DO_CICLO.map((etapa, indice) => {
                 const atual = etapaAtual(detalhe.status);
@@ -409,7 +450,7 @@ function TelaPedido({ pedidoId }: { pedidoId: string }) {
             </ol>
           </Secao>
 
-          <Secao id="titulo-acoes" titulo="Ações" cor="vermelho">
+          <Secao id="titulo-acoes" titulo="Ações" cor="vermelho" className="pasta-acoes">
             <p className="texto-suave">
               Ambiente de demonstração: as execuções são simuladas e nenhuma escrita é feita nos
               sistemas de destino.
@@ -418,13 +459,13 @@ function TelaPedido({ pedidoId }: { pedidoId: string }) {
               {pendente && permitido('editarProposta') && (
                 <>
                   <Button
-                    className="botao-secundario"
+                    className="btn btn-outline-secondary"
                     onPress={() => abrir({ tipo: 'editarIdentidade' })}
                   >
                     Editar identidade
                   </Button>
                   <Button
-                    className="botao-secundario"
+                    className="btn btn-outline-secondary"
                     onPress={() => abrir({ tipo: 'recalcular' })}
                   >
                     Recalcular identidade
@@ -433,17 +474,20 @@ function TelaPedido({ pedidoId }: { pedidoId: string }) {
               )}
               {pendente && permitido('decidirPedido') && (
                 <>
-                  <Button className="botao-primario" onPress={() => abrir({ tipo: 'aprovar' })}>
+                  <Button className="btn btn-primary" onPress={() => abrir({ tipo: 'aprovar' })}>
                     Aprovar
                   </Button>
-                  <Button className="botao-secundario" onPress={() => abrir({ tipo: 'rejeitar' })}>
+                  <Button
+                    className="btn btn-outline-secondary"
+                    onPress={() => abrir({ tipo: 'rejeitar' })}
+                  >
                     Rejeitar
                   </Button>
                 </>
               )}
               {executavel && permitido('executarOperacoes') && itensElegiveis.length > 0 && (
                 <Button
-                  className="botao-primario"
+                  className="btn btn-primary"
                   onPress={() =>
                     abrir({
                       tipo: 'executarTodos',
@@ -460,7 +504,7 @@ function TelaPedido({ pedidoId }: { pedidoId: string }) {
                 permitido('registrarManualReconciliar') &&
                 itensElegiveis.length > 0 && (
                   <Button
-                    className="botao-secundario"
+                    className="btn btn-outline-secondary"
                     onPress={() => abrir({ tipo: 'acessoManual' })}
                   >
                     Registrar acesso manual
@@ -468,7 +512,10 @@ function TelaPedido({ pedidoId }: { pedidoId: string }) {
                 )}
               {['aprovado', 'concluidoComErros', 'rejeitado'].includes(detalhe.status) &&
                 permitido('decidirPedido') && (
-                  <Button className="botao-secundario" onPress={() => abrir({ tipo: 'reabrir' })}>
+                  <Button
+                    className="btn btn-outline-secondary"
+                    onPress={() => abrir({ tipo: 'reabrir' })}
+                  >
                     Reabrir para revisão
                   </Button>
                 )}
@@ -477,61 +524,85 @@ function TelaPedido({ pedidoId }: { pedidoId: string }) {
               Conferir existência e reconciliar dependem dos conectores reais e ainda não estão
               disponíveis na API.
             </p>
-            <Button className="botao-link" onPress={recarregar}>
+            <Button className="btn btn-link" onPress={recarregar}>
               Atualizar
             </Button>
           </Secao>
         </div>
       </div>
 
-      <Secao id="titulo-itens" titulo="Itens de acesso e resultado por sistema" cor="roxo">
+      <section aria-labelledby="titulo-itens">
+        <div className="itens-cabeca">
+          <h2 id="titulo-itens" className="h5">
+            Itens de acesso e resultado por sistema
+          </h2>
+        </div>
         {revisao.itens.length === 0 ? (
-          <p className="estado">Nenhum sistema habilitado para este vínculo.</p>
+          <div className="pasta">
+            <div className="pasta-corpo">
+              <p className="estado">Nenhum sistema habilitado para este vínculo.</p>
+            </div>
+          </div>
         ) : (
           <ul className="itens">
             {revisao.itens.map((proposto) => {
               const resultado = detalhe.itens.find((item) => item.sistema === proposto.sistema);
               return (
-                <li key={proposto.sistema} className="item">
-                  <h3>{nomeSistema(proposto.sistema)}</h3>
-                  <p className="texto-suave">Origem da sugestão: {proposto.origemSugestao}</p>
-                  <dl className="grade-leitura">
-                    {resumirParametros(proposto.parametros).map(([chave, valor]) => (
-                      <Campo key={chave} rotulo={chave}>
-                        {valor}
-                      </Campo>
-                    ))}
-                  </dl>
-                  {resultado ? (
-                    <ResultadoDoItem item={resultado} />
-                  ) : (
-                    <p className="texto-suave">Sem resultado: nada foi executado ainda.</p>
-                  )}
-                  {resultado &&
-                    executavel &&
-                    STATUS_ITEM_EXECUTAVEL.includes(resultado.status) &&
-                    !temOperacaoAtiva(resultado) &&
-                    permitido('executarOperacoes') && (
-                      <Button
-                        className="botao-secundario"
-                        onPress={() =>
-                          abrir({
-                            tipo: 'executarItem',
-                            itemId: resultado.id,
-                            sistema: proposto.sistema,
-                          })
-                        }
-                      >
-                        {resultado.status === 'pendente' ? 'Provisionar' : 'Reprocessar'}{' '}
+                <li key={proposto.sistema}>
+                  <section className="pasta" aria-label={nomeSistema(proposto.sistema)}>
+                    <div className="pasta-topo">
+                      <h3 className="pasta-tab">
+                        <ChipSistema sistema={proposto.sistema} />
                         {nomeSistema(proposto.sistema)}
-                      </Button>
-                    )}
+                      </h3>
+                      {resultado && (
+                        <SeloStatus
+                          rotulo={ROTULO_STATUS_ITEM[resultado.status]}
+                          tom={tomDoStatusItem(resultado.status)}
+                        />
+                      )}
+                    </div>
+                    <div className="pasta-corpo item-corpo">
+                      <p className="texto-suave">Origem da sugestão: {proposto.origemSugestao}</p>
+                      <dl className="grade-leitura">
+                        {resumirParametros(proposto.parametros).map(([chave, valor]) => (
+                          <Campo key={chave} rotulo={chave}>
+                            {valor}
+                          </Campo>
+                        ))}
+                      </dl>
+                      {resultado ? (
+                        <ResultadoDoItem item={resultado} />
+                      ) : (
+                        <p className="texto-suave">Sem resultado: nada foi executado ainda.</p>
+                      )}
+                      {resultado &&
+                        executavel &&
+                        STATUS_ITEM_EXECUTAVEL.includes(resultado.status) &&
+                        !temOperacaoAtiva(resultado) &&
+                        permitido('executarOperacoes') && (
+                          <Button
+                            className="btn btn-sm btn-outline-primary"
+                            onPress={() =>
+                              abrir({
+                                tipo: 'executarItem',
+                                itemId: resultado.id,
+                                sistema: proposto.sistema,
+                              })
+                            }
+                          >
+                            {resultado.status === 'pendente' ? 'Provisionar' : 'Reprocessar'}{' '}
+                            {nomeSistema(proposto.sistema)}
+                          </Button>
+                        )}
+                    </div>
+                  </section>
                 </li>
               );
             })}
           </ul>
         )}
-      </Secao>
+      </section>
 
       <Secao
         id="titulo-timeline"
@@ -540,7 +611,11 @@ function TelaPedido({ pedidoId }: { pedidoId: string }) {
         extra="eventos relacionados a este pedido"
         semPadding
       >
-        <LinhaDoTempoPedido detalhe={detalhe} />
+        {permitido('consultarAuditoria') ? (
+          <HistoricoPedido pedidoId={detalhe.id} />
+        ) : (
+          <LinhaDoTempoPedido detalhe={detalhe} />
+        )}
       </Secao>
 
       <DialogoConfirmacao

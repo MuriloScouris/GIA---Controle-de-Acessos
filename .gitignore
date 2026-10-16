@@ -9,3 +9,5 @@ obj/
 dist/
 coverage/
 *.tsbuildinfo
+test-results/
+playwright-report/

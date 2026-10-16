@@ -3,9 +3,11 @@
  * simuladores de cada fornecedor. Os adaptadores implementam o contrato
  * `Conector` do domínio sobre um cliente de transporte injetado; os
  * simuladores implementam esses clientes em memória, sem rede nem segredos.
- * Nenhum transporte real (LDAPS, Graph, REST, SOAP) existe neste pacote ainda.
+ * Transportes reais sao selecionados explicitamente em composicao.ts.
  */
 export const PACOTE = '@gia/conectores';
+export * from './composicao.js';
+export * from './leitura-preflight.js';
 
 export * from './erros.js';
 export * from './escape.js';
@@ -15,9 +17,15 @@ export * from './catalogo.js';
 export * from './adaptadores/ad.js';
 export * from './adaptadores/m365.js';
 export * from './adaptadores/docusign.js';
+export * from './docusign/configuracao.js';
+export * from './docusign/cliente.js';
 export * from './adaptadores/softexpert.js';
 export * from './adaptadores/jira-destino.js';
 export * from './adaptadores/jira-origem.js';
+export * from './jira/http.js';
+export * from './jira/origem.js';
+export * from './jira/destino.js';
+export * from './jira/ambiente.js';
 
 export * from './simuladores/roteiro.js';
 export * from './simuladores/ad.js';
@@ -25,3 +33,16 @@ export * from './simuladores/m365.js';
 export * from './simuladores/docusign.js';
 export * from './simuladores/softexpert.js';
 export * from './simuladores/jira.js';
+
+export * from './transportes/configuracao-ad.js';
+export * from './transportes/ldap.js';
+export * from './transportes/ad-ldap.js';
+export * from './transportes/ad-real.js';
+
+export * from './softexpert/configuracao.js';
+export * from './softexpert/cliente.js';
+export * from './softexpert/real.js';
+
+export * from './m365/configuracao.js';
+export * from './m365/cliente.js';
+export * from './m365/real.js';
