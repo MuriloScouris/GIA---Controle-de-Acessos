@@ -6,16 +6,13 @@ import {
   carregarGatesDeEscrita,
   criarRegistrador,
   exigirSegredosForaDoAmbiente,
-  exigirTlsVerificado,
   liberacaoDosGates,
   nivelDeLog,
   portaDeMetricas,
   resolverSegredosDeArquivo,
   servirMetricas,
-  tlsVerificacaoDesligada,
   type GatesDeEscrita,
   type VariaveisAmbiente,
-  VARIAVEL_TLS_NODE,
 } from '@gia/contratos';
 import {
   criarCatalogoSimulado,
@@ -23,6 +20,7 @@ import {
   type CatalogoSimulado,
 } from '@gia/conectores';
 import { configuracaoPadrao, type PoliticaExecucao } from '@gia/dominio';
+import { VARIAVEL_TLS_NODE, exigirTlsVerificado, tlsVerificacaoDesligada } from '@gia/contratos';
 import { criarBanco, criarPersistenciaPostgres, urlDoBanco } from '@gia/persistencia';
 import { executarCiclo } from './ciclo.js';
 import { carregarConfiguracaoWorker } from './configuracao.js';

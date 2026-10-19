@@ -5,7 +5,6 @@ import {
   carregarGatesDeEscrita,
   criarRegistrador,
   exigirSegredosForaDoAmbiente,
-  exigirTlsVerificado,
   liberacaoDosGates,
   modoDosGates,
   nivelDeLog,
@@ -14,10 +13,10 @@ import {
   type GatesDeEscrita,
   type Registrador,
   type VariaveisAmbiente,
-  VARIAVEL_TLS_NODE,
 } from '@gia/contratos';
 import { configuracaoPadrao, type ConfiguracaoSistemas } from '@gia/dominio';
 import { VARIAVEL_URL_BANCO } from '@gia/persistencia';
+import { VARIAVEL_TLS_NODE, exigirTlsVerificado } from '@gia/contratos';
 
 export const VARIAVEL_METRICAS_PORTA = 'GIA_METRICAS_PORTA';
 export const VARIAVEL_VERSAO = 'GIA_VERSAO';
