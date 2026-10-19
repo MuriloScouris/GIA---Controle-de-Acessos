@@ -4,36 +4,139 @@ import { Button } from 'react-aria-components';
 import { useApi } from '../api/ApiProvider.js';
 import { ErroApi } from '../api/cliente.js';
 import { useCarregar } from '../api/useCarregar.js';
-import { formatarInstante, nomeSistema } from '../rotulos.js';
+import { nomeSistema } from '../rotulos.js';
 import { ErroCarga } from './ErroCarga.js';
+import {
+  LinhaDoTempo,
+  type CorEvento,
+  type EventoLinha,
+  type Par,
+  type TomEvento,
+} from './LinhaDoTempoPedido.js';
 
-const ROTULOS: Readonly<Record<string, string>> = {
-  pedidoRecebido: 'Pedido recebido',
-  colaboradorCriado: 'Colaborador criado',
-  colaboradorIdentidadeAtualizada: 'Identidade do colaborador atualizada',
-  colaboradorStatusAlterado: 'Status do colaborador alterado',
-  propostaEditada: 'Proposta editada',
-  identidadeVerificada: 'Identidade verificada',
-  pedidoAprovado: 'Pedido aprovado',
-  pedidoRejeitado: 'Pedido rejeitado',
-  pedidoReaberto: 'Pedido reaberto',
-  execucaoSolicitada: 'Execução solicitada',
-  simulacaoSolicitada: 'Simulação solicitada',
-  statusPedidoAlterado: 'Status do pedido alterado',
-  operacaoReservada: 'Operação reservada',
-  operacaoResultadoRegistrado: 'Resultado da operação registrado',
-  operacaoReagendada: 'Operação reagendada',
-  operacaoEncaminhadaParaReconciliacao: 'Operação encaminhada para reconciliação',
-  acessoManualRegistrado: 'Acesso manual registrado',
-  acessoManualComprovado: 'Acesso manual comprovado',
-  itemReconciliado: 'Item reconciliado',
-  configuracaoAlterada: 'Configuração alterada',
-  liberacaoEscritaAlterada: 'Liberação de escrita alterada',
-  estadoInicialSincronizado: 'Estado inicial sincronizado',
-  alteracaoDetectadaNaSincronizacao: 'Alteração detectada na sincronização',
-  correcaoRegistrada: 'Correção registrada',
-  documentoEmitido: 'Documento emitido',
+interface Tipo {
+  readonly titulo: string;
+  readonly categoria: string;
+  readonly cor: CorEvento;
+  readonly estado: string;
+  readonly tom: TomEvento;
+}
+
+const tipo = (
+  titulo: string,
+  categoria: string,
+  cor: CorEvento,
+  estado: string,
+  tom: TomEvento,
+): Tipo => ({ titulo, categoria, cor, estado, tom });
+
+/** Como cada tipo de evento persistido aparece: título, categoria, cor e estado. */
+const TIPOS: Readonly<Record<string, Tipo>> = {
+  pedidoRecebido: tipo('Pedido recebido', 'Pedido', 'azul', 'Registrado', 'neutro'),
+  statusPedidoAlterado: tipo('Status do pedido alterado', 'Pedido', 'azul', 'Alterado', 'info'),
+  colaboradorCriado: tipo('Colaborador criado', 'Colaborador', 'ciano', 'Criado', 'ok'),
+  colaboradorIdentidadeAtualizada: tipo(
+    'Identidade do colaborador atualizada',
+    'Colaborador',
+    'ciano',
+    'Atualizado',
+    'info',
+  ),
+  colaboradorStatusAlterado: tipo(
+    'Status do colaborador alterado',
+    'Colaborador',
+    'ciano',
+    'Alterado',
+    'info',
+  ),
+  propostaEditada: tipo('Proposta editada', 'Proposta', 'lilas', 'Editada', 'info'),
+  identidadeVerificada: tipo('Identidade verificada', 'Proposta', 'lilas', 'Verificada', 'ok'),
+  pedidoAprovado: tipo('Pedido aprovado', 'Decisão', 'lilas', 'Aprovado', 'ok'),
+  pedidoRejeitado: tipo('Pedido rejeitado', 'Decisão', 'lilas', 'Rejeitado', 'perigo'),
+  pedidoReaberto: tipo('Pedido reaberto', 'Decisão', 'lilas', 'Reaberto', 'aviso'),
+  execucaoSolicitada: tipo('Execução solicitada', 'Execução', 'laranja', 'Solicitada', 'info'),
+  simulacaoSolicitada: tipo('Simulação solicitada', 'Execução', 'laranja', 'Solicitada', 'info'),
+  operacaoReservada: tipo('Operação reservada', 'Operação', 'laranja', 'Reservada', 'info'),
+  operacaoResultadoRegistrado: tipo(
+    'Resultado da operação registrado',
+    'Operação',
+    'laranja',
+    'Registrado',
+    'neutro',
+  ),
+  operacaoReagendada: tipo('Operação reagendada', 'Operação', 'laranja', 'Reagendada', 'aviso'),
+  operacaoEncaminhadaParaReconciliacao: tipo(
+    'Operação encaminhada para reconciliação',
+    'Operação',
+    'laranja',
+    'Em reconciliação',
+    'aviso',
+  ),
+  acessoManualRegistrado: tipo('Acesso manual registrado', 'Acesso', 'verde', 'Registrado', 'info'),
+  acessoManualComprovado: tipo('Acesso manual comprovado', 'Acesso', 'verde', 'Comprovado', 'ok'),
+  itemReconciliado: tipo('Item reconciliado', 'Acesso', 'verde', 'Reconciliado', 'ok'),
+  configuracaoAlterada: tipo(
+    'Configuração alterada',
+    'Configuração',
+    'cinza',
+    'Alterada',
+    'neutro',
+  ),
+  liberacaoEscritaAlterada: tipo(
+    'Liberação de escrita alterada',
+    'Configuração',
+    'cinza',
+    'Alterada',
+    'aviso',
+  ),
+  estadoInicialSincronizado: tipo(
+    'Estado inicial sincronizado',
+    'Sincronização',
+    'ciano',
+    'Sincronizado',
+    'neutro',
+  ),
+  alteracaoDetectadaNaSincronizacao: tipo(
+    'Alteração detectada na sincronização',
+    'Sincronização',
+    'ciano',
+    'Detectada',
+    'aviso',
+  ),
+  correcaoRegistrada: tipo('Correção registrada', 'Correção', 'amarelo', 'Registrada', 'aviso'),
+  documentoEmitido: tipo('Documento emitido', 'Documento', 'azul', 'Emitido', 'ok'),
 };
+
+const TIPO_DESCONHECIDO = tipo('Evento registrado', 'Evento', 'cinza', 'Registrado', 'neutro');
+
+const ROTULO_ORIGEM: Readonly<Record<Historico['eventos'][number]['origem'], string>> = {
+  gia: 'GIA',
+  sincronizacaoAd: 'Sincronização AD',
+  sincronizacaoM365: 'Sincronização Microsoft 365',
+};
+
+function paraLinha(evento: Historico['eventos'][number]): EventoLinha {
+  const { titulo, categoria, cor, estado, tom } = TIPOS[evento.tipo] ?? TIPO_DESCONHECIDO;
+  const detalhes: Par[] = [
+    ['Evento', evento.id],
+    ['Origem', ROTULO_ORIGEM[evento.origem]],
+  ];
+  if (evento.operacaoId) detalhes.push(['Operação', evento.operacaoId]);
+  if (evento.correlacaoId) detalhes.push(['Correlação', evento.correlacaoId]);
+  if (evento.corrigeEventoId) detalhes.push(['Corrige o evento', evento.corrigeEventoId]);
+  return {
+    id: evento.id,
+    instante: evento.instante,
+    categoria,
+    cor,
+    estado,
+    tom,
+    titulo,
+    ator: evento.ator?.nome ?? 'Sincronização externa',
+    contexto: evento.sistema ? [['Sistema', nomeSistema(evento.sistema)]] : [],
+    detalhes,
+  };
+}
 
 export function HistoricoPedido({ pedidoId }: { pedidoId: string }) {
   return <Conteudo key={pedidoId} pedidoId={pedidoId} />;
@@ -85,7 +188,17 @@ function Conteudo({ pedidoId }: { pedidoId: string }) {
     }
   }
 
-  if (estado.situacao === 'carregando') return <p role="status">Carregando histórico…</p>;
+  if (estado.situacao === 'carregando')
+    return (
+      <div className="estado estado-carregando">
+        <p role="status">Carregando histórico…</p>
+        <div className="esqueleto" aria-hidden="true">
+          <span className="esqueleto-linha" />
+          <span className="esqueleto-linha" />
+          <span className="esqueleto-linha curta" />
+        </div>
+      </div>
+    );
   if (estado.situacao === 'erro')
     return <ErroCarga erro={estado.erro} onTentarDeNovo={atualizar} />;
   if (erro?.status === 401 || erro?.status === 403)
@@ -95,61 +208,38 @@ function Conteudo({ pedidoId }: { pedidoId: string }) {
   const eventos = [...new Map(todas.flatMap((p) => p.eventos).map((e) => [e.id, e])).values()];
   return (
     <>
-      <Button className="botao-link" onPress={atualizar} isDisabled={ocupado}>
-        Atualizar histórico
-      </Button>
+      <div className="lt-barra">
+        <span className="lt-total">
+          {eventos.length === 1 ? '1 evento carregado' : `${eventos.length} eventos carregados`}
+        </span>
+        <Button
+          className="btn btn-sm btn-outline-secondary"
+          onPress={atualizar}
+          isDisabled={ocupado}
+        >
+          Atualizar histórico
+        </Button>
+      </div>
       {erro && (
-        <p role="alert">Não foi possível carregar os eventos anteriores. Tente novamente.</p>
+        <p role="alert" className="alert alert-danger lt-aviso">
+          Não foi possível carregar os eventos anteriores. Tente novamente.
+        </p>
       )}
       {eventos.length === 0 ? (
         <p className="estado">Nenhum evento registrado para este pedido.</p>
       ) : (
-        <ol className="tl" aria-label="Histórico persistido do pedido">
-          {eventos.map((evento) => (
-            <li className="tl-item" key={evento.id}>
-              <span className="tl-ponto" aria-hidden="true" />
-              <div className="tl-cartao">
-                <p className="tl-titulo">{ROTULOS[evento.tipo] ?? 'Evento registrado'}</p>
-                <div className="tl-linha">
-                  <time dateTime={evento.instante}>{formatarInstante(evento.instante)}</time>
-                  <span>{evento.ator?.nome ?? 'Sincronização externa'}</span>
-                  {evento.sistema && <span>{nomeSistema(evento.sistema)}</span>}
-                </div>
-                <dl>
-                  <dt>Evento</dt>
-                  <dd>{evento.id}</dd>
-                  {evento.operacaoId && (
-                    <>
-                      <dt>Operação</dt>
-                      <dd>{evento.operacaoId}</dd>
-                    </>
-                  )}
-                  {evento.correlacaoId && (
-                    <>
-                      <dt>Correlação</dt>
-                      <dd>{evento.correlacaoId}</dd>
-                    </>
-                  )}
-                  {evento.corrigeEventoId && (
-                    <>
-                      <dt>Corrige o evento</dt>
-                      <dd>{evento.corrigeEventoId}</dd>
-                    </>
-                  )}
-                </dl>
-              </div>
-            </li>
-          ))}
-        </ol>
+        <LinhaDoTempo eventos={eventos.map(paraLinha)} rotulo="Histórico persistido do pedido" />
       )}
       {cursor && (
-        <Button
-          className="botao-secundario"
-          isDisabled={ocupado}
-          onPress={() => void anteriores(cursor)}
-        >
-          {ocupado ? 'Carregando eventos…' : 'Carregar eventos anteriores'}
-        </Button>
+        <div className="lt-rodape">
+          <Button
+            className="btn btn-outline-primary"
+            isDisabled={ocupado}
+            onPress={() => void anteriores(cursor)}
+          >
+            {ocupado ? 'Carregando eventos…' : 'Carregar eventos anteriores'}
+          </Button>
+        </div>
       )}
     </>
   );
