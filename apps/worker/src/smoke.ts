@@ -2,6 +2,7 @@ import { pathToFileURL } from 'node:url';
 import {
   ErroConfiguracao,
   carregarGatesDeEscrita,
+  exigirTlsVerificado,
   resolverSegredosDeArquivo,
   type VariaveisAmbiente,
 } from '@gia/contratos';
@@ -14,6 +15,8 @@ export async function smokeIntegracoes(
   envOriginal: VariaveisAmbiente,
   somenteConfiguracao = false,
 ) {
+  // Leitura autenticada com TLS desligado não comprova nada e expõe a credencial.
+  exigirTlsVerificado(envOriginal);
   const env = await resolverSegredosDeArquivo(envOriginal);
   const config = carregarConfiguracaoWorker(env);
   const gates = carregarGatesDeEscrita(env);

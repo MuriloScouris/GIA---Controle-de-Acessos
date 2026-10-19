@@ -8,6 +8,7 @@ import {
   LIMITE_POR_SISTEMA_PADRAO,
   montarConectores,
 } from './index.js';
+import { smokeIntegracoes } from './smoke.js';
 
 describe('@gia/worker', () => {
   it('inicia com escrita externa desligada', () => {
@@ -128,6 +129,37 @@ describe('@gia/worker', () => {
         disponivel: true,
       });
     }
+  });
+
+  it('produção recusa verificação TLS desligada (M6), citando só o nome', async () => {
+    const env = { GIA_AMBIENTE: 'producao', NODE_TLS_REJECT_UNAUTHORIZED: '0' };
+    expect(() => iniciar(env)).toThrow('Configuração inválida: NODE_TLS_REJECT_UNAUTHORIZED');
+    const linhas: string[] = [];
+    await expect(
+      executarWorker(env, new AbortController().signal, (l) => linhas.push(l)),
+    ).rejects.toThrow('Configuração inválida: NODE_TLS_REJECT_UNAUTHORIZED');
+    // Recusa antes de ler o cofre, abrir conectores ou o banco: nada foi registrado.
+    expect(linhas).toEqual([]);
+    await expect(smokeIntegracoes(env, true)).rejects.toThrow(
+      'Configuração inválida: NODE_TLS_REJECT_UNAUTHORIZED',
+    );
+  });
+
+  it('fora de produção o worker sobe com TLS desligado e registra o aviso na partida', async () => {
+    const env = { GIA_AMBIENTE: 'teste', NODE_TLS_REJECT_UNAUTHORIZED: '0' };
+    expect(iniciar(env)).toContain('escrita externa desligada');
+    const linhas: string[] = [];
+    // Sem banco o worker para logo depois; o aviso já saiu na partida.
+    await expect(
+      executarWorker(env, new AbortController().signal, (l) => linhas.push(l)),
+    ).rejects.toThrow('GIA_DATABASE_URL');
+    expect(linhas.map((l) => JSON.parse(l) as Record<string, unknown>)).toContainEqual(
+      expect.objectContaining({
+        evento: 'tls_verificacao_desligada',
+        nivel: 'aviso',
+        variaveis: ['NODE_TLS_REJECT_UNAUTHORIZED'],
+      }),
+    );
   });
 
   it('sem URL do banco o worker não sobe', async () => {
