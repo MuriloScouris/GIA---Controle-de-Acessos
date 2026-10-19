@@ -16,8 +16,23 @@ export interface ConfiguracaoDocusign {
 
 const UUID = /^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/i;
 
-/** Configuração não contém a chave; somente o caminho de um secret montado. */
-export function carregarConfiguracaoDocusign(env: VariaveisAmbiente): ConfiguracaoDocusign {
+/** Teto que o chamador (composição do worker/API) impõe ao que o ambiente configurou. */
+export interface LimitesConfiguracaoDocusign {
+  /** Prazo do motor menos a folga: `timeoutMs` nunca passa disso, mas o ambiente é validado antes. */
+  readonly prazoMaximoMs?: number;
+}
+
+/**
+ * Configuração não contém a chave; somente o caminho de um secret montado.
+ *
+ * Política única de timeout (M5): `GIA_DOCUSIGN_TIMEOUT_MS` é sempre validado como veio (inteiro de
+ * 100 a 25000, padrão 20000) — com ou sem composição. Só depois o teto do motor é aplicado, de modo
+ * que valor inválido nunca é "consertado" em silêncio por um clamp.
+ */
+export function carregarConfiguracaoDocusign(
+  env: VariaveisAmbiente,
+  limites: LimitesConfiguracaoDocusign = {},
+): ConfiguracaoDocusign {
   const erros: string[] = [];
   const texto = (nome: string): string => {
     const valor = env[nome]?.trim() ?? '';
@@ -46,7 +61,10 @@ export function carregarConfiguracaoDocusign(env: VariaveisAmbiente): Configurac
     usuarioId: uuid('GIA_DOCUSIGN_USUARIO_ID'),
     contaId: uuid('GIA_DOCUSIGN_CONTA_ID'),
     chavePrivadaArquivo: texto('GIA_DOCUSIGN_CHAVE_PRIVADA_ARQUIVO'),
-    timeoutMs: inteiro('GIA_DOCUSIGN_TIMEOUT_MS', 20_000, 100, 25_000),
+    timeoutMs: Math.min(
+      inteiro('GIA_DOCUSIGN_TIMEOUT_MS', 20_000, 100, 25_000),
+      limites.prazoMaximoMs ?? Infinity,
+    ),
     tentativasLeitura: inteiro('GIA_DOCUSIGN_TENTATIVAS_LEITURA', 3, 1, 3),
     escritaHabilitada: escrita === 'true',
   };
