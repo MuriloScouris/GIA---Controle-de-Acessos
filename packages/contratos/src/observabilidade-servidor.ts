@@ -1,5 +1,5 @@
 import { createServer, type Server } from 'node:http';
-import { RegistroMetricas, TIPO_METRICAS } from './observabilidade.js';
+import { TIPO_METRICAS, type RegistroMetricas } from './observabilidade.js';
 
 /**
  * Servidor só de métricas, separado da porta pública da API e ligado por
