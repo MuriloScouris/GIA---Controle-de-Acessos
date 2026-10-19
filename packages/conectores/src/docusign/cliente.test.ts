@@ -7,7 +7,7 @@ import {
   carregarConfiguracaoDocusign,
   type ConfiguracaoDocusign,
 } from './configuracao.js';
-import { criarClienteDocusignReal } from './cliente.js';
+import { criarClienteDocusignReal, montarConectorDocusign } from './cliente.js';
 import { criarConectorDocusign } from '../adaptadores/docusign.js';
 import { contexto, contextoRevogacao, paramsDocusign } from '../teste/fabricas.js';
 
@@ -109,6 +109,53 @@ describe('configuração segura DocuSign', () => {
     expect(() =>
       carregarConfiguracaoDocusign({ ...env, GIA_DOCUSIGN_TIMEOUT_MS: '30000' }),
     ).toThrow('GIA_DOCUSIGN_TIMEOUT_MS');
+  });
+  describe('política única de timeout (M5)', () => {
+    it('sem teto, vale o que o ambiente configurou; padrão de 20 s', () => {
+      expect(carregarConfiguracaoDocusign(env).timeoutMs).toBe(20_000);
+      expect(
+        carregarConfiguracaoDocusign({ ...env, GIA_DOCUSIGN_TIMEOUT_MS: '7500' }).timeoutMs,
+      ).toBe(7_500);
+    });
+    it('o teto do motor limita o padrão e o valor configurado, nunca o aumenta', () => {
+      const limite = { prazoMaximoMs: 4_900 };
+      expect(carregarConfiguracaoDocusign(env, limite).timeoutMs).toBe(4_900);
+      expect(
+        carregarConfiguracaoDocusign({ ...env, GIA_DOCUSIGN_TIMEOUT_MS: '9000' }, limite).timeoutMs,
+      ).toBe(4_900);
+      expect(
+        carregarConfiguracaoDocusign({ ...env, GIA_DOCUSIGN_TIMEOUT_MS: '1500' }, limite).timeoutMs,
+      ).toBe(1_500);
+    });
+    it('valor fora do contrato é recusado também com teto, em vez de ajustado em silêncio', () => {
+      for (const invalido of ['30000', '99', '0', '', '1e3', '12.5', ' 500', '-1', 'abc'])
+        expect(() =>
+          carregarConfiguracaoDocusign(
+            { ...env, GIA_DOCUSIGN_TIMEOUT_MS: invalido },
+            { prazoMaximoMs: 25_000 },
+          ),
+        ).toThrow('GIA_DOCUSIGN_TIMEOUT_MS');
+    });
+    it('o prazo do conector montado vem da configuração; o timeout de conexão do chamador prevalece', async () => {
+      const lento = vi.fn(
+        (_url: string | URL | Request, init?: RequestInit) =>
+          new Promise<Response>((_resolver, rejeitar) =>
+            init?.signal?.addEventListener('abort', () => rejeitar(init.signal?.reason), {
+              once: true,
+            }),
+          ),
+      );
+      const inicio = Date.now();
+      const conector = montarConectorDocusign(
+        { ...CONFIG, timeoutMs: 2_000 },
+        privateKey,
+        { timeoutConexaoMs: 50 },
+        { fetch: lento },
+      );
+      expect(await conector.testarConexao()).toMatchObject({ disponivel: false });
+      expect(Date.now() - inicio).toBeLessThan(1_500);
+      expect(lento).toHaveBeenCalledTimes(1);
+    });
   });
   it('não expõe o caminho nem dados de erro ao falhar na carga da chave', async () => {
     await expect(carregarChaveDocusign('caminho-inexistente-ficticio')).rejects.toThrow(
@@ -370,6 +417,19 @@ describe('DocuSign real: contrato HTTP e motor', () => {
       await expect(c.cliente.testar()).rejects.toBeDefined();
       expect(c.chamadas.every((r) => r.url.hostname === 'account-d.docusign.com')).toBe(true);
     }
+  });
+
+  it('prazo do motor estourado no transporte compartilhado também é timeout, não resposta perdida', async () => {
+    const c = cenario({ timeoutMs: 20_000 });
+    c.transporte.mockRejectedValue(new DOMException('prazo do motor', 'TimeoutError'));
+    await expect(c.cliente.testar()).rejects.toMatchObject({
+      tipo: 'timeout',
+      codigo: 'DOCUSIGN_TIMEOUT',
+    });
+    await expect(c.cliente.criarUsuario(paramsDocusign())).rejects.toMatchObject({
+      tipo: 'timeout',
+    });
+    expect(c.chamadas).toHaveLength(0);
   });
 
   it('timeout aborta o envio; não dispara escrita após estourar o prazo durante uma leitura', async () => {

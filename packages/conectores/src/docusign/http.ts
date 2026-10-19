@@ -127,7 +127,10 @@ export function criarHttpDocusign(
           );
         return dados;
       } catch (erro) {
-        if (sinal.aborted) throw new ErroFornecedor('timeout', 'DOCUSIGN_TIMEOUT');
+        // Prazo único: vale o do cliente (`sinal`) e também o do motor, que o fetch compartilhado
+        // propaga como `TimeoutError`; nos dois casos o efeito é desconhecido, nunca "resposta perdida".
+        if (sinal.aborted || (erro instanceof Error && erro.name === 'TimeoutError'))
+          throw new ErroFornecedor('timeout', 'DOCUSIGN_TIMEOUT');
         if (erro instanceof ErroFornecedor) throw erro;
         // Não repetimos nem expomos mensagens do fetch: podem conter URLs e dados pessoais.
         throw new ErroFornecedor('respostaPerdida', 'DOCUSIGN_RESPOSTA_PERDIDA');

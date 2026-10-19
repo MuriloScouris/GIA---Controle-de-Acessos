@@ -245,6 +245,25 @@ export interface OpcoesConectorDocusignDoAmbiente {
   readonly timeoutChamadaMs?: number;
 }
 
+/**
+ * Único ponto que liga a configuração do DocuSign aos timeouts do motor, para o fluxo isolado
+ * (`criarConectorDocusignDoAmbiente`) e para a composição do worker (M5): sem o que o chamador
+ * impõe, a conexão usa o prazo de uma operação (`config.timeoutMs`) e a chamada usa o padrão do motor.
+ */
+export function montarConectorDocusign(
+  config: ConfiguracaoDocusign,
+  chave: KeyObject,
+  opcoes: OpcoesConectorDocusignDoAmbiente = {},
+  dependencias: DependenciasHttpDocusign = {},
+): Conector {
+  return criarConectorDocusign(criarClienteDocusignReal(config, chave, dependencias), {
+    modo: 'real',
+    // O testarConexao inclui OAuth e userinfo: precisa do prazo de uma operação, não dos 5 s de conexão.
+    timeoutConexaoMs: opcoes.timeoutConexaoMs ?? config.timeoutMs,
+    ...(opcoes.timeoutChamadaMs === undefined ? {} : { timeoutChamadaMs: opcoes.timeoutChamadaMs }),
+  });
+}
+
 /** Montagem explícita; não altera o gate de escrita do domínio ou o catálogo do worker. */
 export async function criarConectorDocusignDoAmbiente(
   env: VariaveisAmbiente,
@@ -252,12 +271,7 @@ export async function criarConectorDocusignDoAmbiente(
 ): Promise<Conector> {
   const config = carregarConfiguracaoDocusign(env);
   const chave = await carregarChaveDocusign(config.chavePrivadaArquivo);
-  return criarConectorDocusign(criarClienteDocusignReal(config, chave), {
-    modo: 'real',
-    // O testarConexao inclui OAuth e userinfo: precisa do prazo de uma operação, não dos 5 s de conexão.
-    timeoutConexaoMs: opcoes.timeoutConexaoMs ?? config.timeoutMs,
-    ...(opcoes.timeoutChamadaMs === undefined ? {} : { timeoutChamadaMs: opcoes.timeoutChamadaMs }),
-  });
+  return montarConectorDocusign(config, chave, opcoes);
 }
 
 /**
