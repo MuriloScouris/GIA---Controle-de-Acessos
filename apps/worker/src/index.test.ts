@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ErroConfiguracao } from '@gia/contratos';
 import { describe, expect, it } from 'vitest';
-import { POLITICA_EXECUCAO_PADRAO, SISTEMAS } from '@gia/dominio';
+import { POLITICA_EXECUCAO_PADRAO, SISTEMAS, type Conector } from '@gia/dominio';
 import {
   carregarConfiguracaoWorker,
   executarWorker,
@@ -202,6 +202,55 @@ describe('@gia/worker', () => {
     expect(desligado.validado).toBe(false);
     const ligado = await smokeIntegracoes({ GIA_AMBIENTE: 'teste' }, true);
     expect(ligado.avisos).toEqual([]);
+  });
+
+  it('smoke de leitura: só a verificação TLS desligada emite o aviso e tira o validado (M6)', async () => {
+    // Cinco conectores que respondem disponíveis, sem rede: com TLS ligado o
+    // smoke de leitura valida; a única diferença entre os dois casos é o TLS.
+    const chamadas: string[] = [];
+    const disponiveis = async () =>
+      Object.fromEntries(
+        SISTEMAS.map((sistema) => [
+          sistema,
+          {
+            testarConexao: async () => {
+              chamadas.push(sistema);
+              return { modo: 'real', disponivel: true, codigo: 'OK', mensagem: 'ok' } as const;
+            },
+          } as unknown as Conector,
+        ]),
+      );
+    const env = { GIA_AMBIENTE: 'teste' };
+
+    const ligado = await smokeIntegracoes(env, false, disponiveis);
+    expect(ligado.escopo).toBe('leitura');
+    expect(ligado.sistemas.every((s) => s.status === 'disponivel')).toBe(true);
+    expect(ligado.validado).toBe(true);
+    expect(ligado.avisos).toEqual([]);
+
+    for (const valor of ['1', '']) {
+      const outro = await smokeIntegracoes(
+        { ...env, NODE_TLS_REJECT_UNAUTHORIZED: valor },
+        false,
+        disponiveis,
+      );
+      expect(outro.avisos).toEqual([]);
+      expect(outro.validado).toBe(true);
+    }
+
+    chamadas.length = 0;
+    const desligado = await smokeIntegracoes(
+      { ...env, NODE_TLS_REJECT_UNAUTHORIZED: '0' },
+      false,
+      disponiveis,
+    );
+    // As leituras rodaram e responderam disponíveis; mesmo assim não valida.
+    expect(chamadas.sort()).toEqual([...SISTEMAS].sort());
+    expect(desligado.sistemas.every((s) => s.status === 'disponivel')).toBe(true);
+    expect(desligado.avisos).toEqual(['tls_verificacao_desligada']);
+    expect(desligado.validado).toBe(false);
+    // O relatório não carrega o valor da variável.
+    expect(JSON.stringify(desligado)).not.toContain('NODE_TLS_REJECT_UNAUTHORIZED');
   });
 
   it('sem URL do banco o worker não sobe', async () => {
