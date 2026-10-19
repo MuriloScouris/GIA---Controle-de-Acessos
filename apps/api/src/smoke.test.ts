@@ -1,5 +1,6 @@
 import type { AddressInfo } from 'node:net';
-import { RegistroMetricas, carregarGatesDeEscrita, servirMetricas } from '@gia/contratos';
+import { RegistroMetricas, carregarGatesDeEscrita } from '@gia/contratos';
+import { servirMetricas } from '@gia/contratos/observabilidade-servidor';
 import { afterEach, describe, expect, it } from 'vitest';
 import { criarApp } from './app.js';
 import { executarSmoke } from './smoke.js';

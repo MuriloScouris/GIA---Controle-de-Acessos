@@ -4,9 +4,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   carregarGatesDeEscrita,
-  resolverSegredosDeArquivo,
   type VariaveisAmbiente,
 } from '@gia/contratos';
+import { resolverSegredosDeArquivo } from '@gia/contratos/segredos';
 import { POLITICA_EXECUCAO_PADRAO, SISTEMAS } from '@gia/dominio';
 import { criarPersistenciaPostgres } from '@gia/persistencia';
 import { criarBancoDeTeste, TEM_BANCO, TEMPO_BANCO_MS } from '@gia/persistencia/teste';

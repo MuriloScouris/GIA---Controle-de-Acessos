@@ -1,7 +1,8 @@
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { resolverSegredosDeArquivo, type VariaveisAmbiente } from '@gia/contratos';
+import { type VariaveisAmbiente } from '@gia/contratos';
+import { resolverSegredosDeArquivo } from '@gia/contratos/segredos';
 import { SISTEMAS } from '@gia/dominio';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {

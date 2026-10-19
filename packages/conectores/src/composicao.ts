@@ -1,9 +1,9 @@
 import {
   ErroConfiguracao,
   carregarGatesDeEscrita,
-  exigirSegredosForaDoAmbiente,
   type VariaveisAmbiente,
 } from '@gia/contratos';
+import { exigirSegredosForaDoAmbiente } from '@gia/contratos/segredos';
 import {
   POLITICA_EXECUCAO_PADRAO,
   SISTEMAS,

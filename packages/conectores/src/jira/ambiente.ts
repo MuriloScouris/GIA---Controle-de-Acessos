@@ -1,8 +1,8 @@
 import {
   ErroConfiguracao,
-  exigirSegredosForaDoAmbiente,
   type VariaveisAmbiente,
 } from '@gia/contratos';
+import { exigirSegredosForaDoAmbiente } from '@gia/contratos/segredos';
 import { criarDestinoJiraCloud } from './destino.js';
 import { HttpJira, objeto, type OpcoesHttpJira } from './http.js';
 import {
