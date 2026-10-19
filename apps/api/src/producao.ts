@@ -16,6 +16,7 @@ import {
 import { exigirSegredosForaDoAmbiente } from '@gia/contratos/segredos';
 import { configuracaoPadrao, type ConfiguracaoSistemas } from '@gia/dominio';
 import { VARIAVEL_URL_BANCO } from '@gia/persistencia';
+import { VARIAVEL_TLS_NODE, exigirTlsVerificado } from '@gia/contratos';
 
 export const VARIAVEL_METRICAS_PORTA = 'GIA_METRICAS_PORTA';
 export const VARIAVEL_VERSAO = 'GIA_VERSAO';
@@ -36,6 +37,8 @@ export interface AmbienteApi {
  * Valida o ambiente da API de uma vez, citando só nomes de variáveis:
  *
  * - segredos por valor no ambiente são recusados em produção (regra 12);
+ * - verificação TLS desligada (`NODE_TLS_REJECT_UNAUTHORIZED=0`) é recusada em
+ *   produção; fora dela, a API sobe e registra o aviso;
  * - os gates de escrita valem para a API e para o worker (regra 8);
  * - produção e escrita real exigem PostgreSQL: memória do processo perderia a
  *   fila e os eventos de auditoria num reinício.
@@ -55,6 +58,7 @@ export function prepararAmbienteApi(
     }
   };
   const segredosPorValor = registrar(() => exigirSegredosForaDoAmbiente(env)) ?? [];
+  const tlsDesligado = registrar(() => exigirTlsVerificado(env)) ?? false;
   const config = registrar(() => carregarConfiguracaoApi(env));
   const gates = registrar(() => carregarGatesDeEscrita(env));
   const porta = portaDeMetricas(env[VARIAVEL_METRICAS_PORTA]);
@@ -75,6 +79,9 @@ export function prepararAmbienteApi(
   });
   if (segredosPorValor.length > 0) {
     registrador.aviso('segredo_no_ambiente', { variaveis: segredosPorValor });
+  }
+  if (tlsDesligado) {
+    registrador.aviso('tls_verificacao_desligada', { variaveis: [VARIAVEL_TLS_NODE] });
   }
   const versao = env[VARIAVEL_VERSAO]?.trim() || 'desconhecida';
   // Auditoria operacional: o estado dos gates fica registrado em toda partida.

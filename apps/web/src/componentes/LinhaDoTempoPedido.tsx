@@ -2,41 +2,70 @@ import type { PedidoDetalhe } from '@gia/contratos';
 import { Fragment } from 'react';
 import { ROTULO_VINCULO, formatarInstante, nomeSistema } from '../rotulos.js';
 
-type Tom = 'neutro' | 'ok';
+/** Estado do evento: define a cor do selo e o destaque lateral do cartão. */
+export type TomEvento = 'neutro' | 'ok' | 'info' | 'aviso' | 'perigo';
 
-const CLASSE_DA_COR = { azul: 'tab-azul', verde: 'tab-verde' } as const;
+export type CorEvento = 'lilas' | 'azul' | 'verde' | 'laranja' | 'amarelo' | 'ciano' | 'cinza';
 
-interface Evento {
+const CLASSE_DA_COR: Readonly<Record<CorEvento, string>> = {
+  lilas: 'tab-lilas',
+  azul: 'tab-azul',
+  verde: 'tab-verde',
+  laranja: 'tab-laranja',
+  amarelo: 'tab-amarelo',
+  ciano: 'tab-ciano',
+  cinza: 'tab-cinza',
+};
+
+const CLASSE_DO_SELO: Readonly<Record<TomEvento, string>> = {
+  neutro: 'neutral',
+  ok: 'ok',
+  info: 'info',
+  aviso: 'warn',
+  perigo: 'danger',
+};
+
+/** Par rótulo/valor exibido sob o evento. */
+export type Par = readonly [rotulo: string, valor: string];
+
+/** Evento já normalizado para exibição, venha ele do detalhe do pedido ou do histórico persistido. */
+export interface EventoLinha {
   readonly id: string;
   readonly instante: string;
-  readonly tipo: string;
-  readonly cor: 'azul' | 'verde';
+  /** Categoria do evento (Pedido, Decisão, Acesso…), mostrada como etiqueta colorida. */
+  readonly categoria: string;
+  readonly cor: CorEvento;
+  /** Estado do evento (Registrado, Rejeitado, Sucesso…), mostrado como selo. */
   readonly estado: string;
-  readonly tom: Tom;
+  readonly tom: TomEvento;
   readonly titulo: string;
   readonly ator: string | null;
-  readonly chips: readonly (readonly [string, string])[];
+  /** Contexto de negócio (chamado, sistema…), junto do ator. */
+  readonly contexto: readonly Par[];
+  /** Identificadores técnicos (evento, operação, correlação…), recolhidos por padrão. */
+  readonly detalhes: readonly Par[];
 }
 
 /**
  * Eventos do pedido derivados só do que a API já devolve (criação, aprovação da revisão e
  * confirmação por sistema). Não há log de auditoria na API: nada aqui é inventado.
  */
-export function eventosDoPedido(detalhe: PedidoDetalhe): Evento[] {
-  const eventos: Evento[] = [
+export function eventosDoPedido(detalhe: PedidoDetalhe): EventoLinha[] {
+  const eventos: EventoLinha[] = [
     {
       id: 'criado',
       instante: detalhe.criadoEm,
-      tipo: 'Pedido',
+      categoria: 'Pedido',
       cor: 'azul',
       estado: 'Registrado',
       tom: 'neutro',
       titulo: `Pedido criado a partir do chamado ${detalhe.origem.idExterno}.`,
       ator: 'Jira',
-      chips: [
-        ['chamado', detalhe.origem.idExterno],
-        ['vínculo', ROTULO_VINCULO[detalhe.tipoVinculo]],
+      contexto: [
+        ['Chamado', detalhe.origem.idExterno],
+        ['Vínculo', ROTULO_VINCULO[detalhe.tipoVinculo]],
       ],
+      detalhes: [],
     },
   ];
   const { revisao } = detalhe;
@@ -44,13 +73,14 @@ export function eventosDoPedido(detalhe: PedidoDetalhe): Evento[] {
     eventos.push({
       id: 'revisao-aprovada',
       instante: revisao.aprovadaEm,
-      tipo: 'Decisão',
-      cor: 'azul',
+      categoria: 'Decisão',
+      cor: 'lilas',
       estado: 'Decidido',
       tom: 'ok',
       titulo: `Revisão ${revisao.numero} aprovada para execução.`,
       ator: revisao.aprovadaPor?.nome ?? null,
-      chips: [['regras', revisao.versaoRegras]],
+      contexto: [['Regras', revisao.versaoRegras]],
+      detalhes: [],
     });
   }
   for (const item of detalhe.itens) {
@@ -59,7 +89,7 @@ export function eventosDoPedido(detalhe: PedidoDetalhe): Evento[] {
     eventos.push({
       id: `item-${item.id}`,
       instante: item.confirmadoEm,
-      tipo: 'Acesso',
+      categoria: 'Acesso',
       cor: 'verde',
       estado: 'Sucesso',
       tom: 'ok',
@@ -67,7 +97,8 @@ export function eventosDoPedido(detalhe: PedidoDetalhe): Evento[] {
         ? `Acesso em ${nomeSistema(item.sistema)} registrado manualmente.`
         : `Acesso em ${nomeSistema(item.sistema)} confirmado no destino.`,
       ator: null,
-      chips: [['sistema', nomeSistema(item.sistema)]],
+      contexto: [['Sistema', nomeSistema(item.sistema)]],
+      detalhes: [],
     });
   }
   return ordenarDoMaisRecente(eventos);
@@ -84,7 +115,7 @@ function epochDe(instante: string): number | null {
  * ou offsets diferentes não ordenam bem como string. Instantes inválidos vão ao final; empates
  * (e inválidos entre si) mantêm a ordem de inserção, já que `Array.prototype.sort` é estável.
  */
-function ordenarDoMaisRecente(eventos: Evento[]): Evento[] {
+function ordenarDoMaisRecente(eventos: EventoLinha[]): EventoLinha[] {
   return eventos
     .map((evento) => ({ evento, epoch: epochDe(evento.instante) }))
     .sort((a, b) => {
@@ -106,40 +137,83 @@ function rotuloDoDia(instante: string, agora: Date): string {
     : data.toLocaleDateString('pt-BR', { day: 'numeric', month: 'long', year: 'numeric' });
 }
 
-/** Timeline do draft "Detalhe da solicitação de acesso": ponto, cartão com tipo, estado e hora. */
-export function LinhaDoTempoPedido({ detalhe }: { detalhe: PedidoDetalhe }) {
-  const eventos = eventosDoPedido(detalhe);
+/** Só a hora: a data já está no cabeçalho do dia. Instante ilegível é mostrado como veio. */
+function horaDoEvento(instante: string): string {
+  const epoch = epochDe(instante);
+  return epoch === null
+    ? formatarInstante(instante)
+    : new Date(epoch).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+}
+
+/**
+ * Linha do tempo do pedido, agrupada por dia: cada evento mostra categoria e estado no topo, a
+ * hora à direita, o que aconteceu em destaque, quem/onde em campos rotulados e os identificadores
+ * técnicos recolhidos. Usada tanto pelo histórico persistido quanto pela versão derivada do detalhe.
+ */
+export function LinhaDoTempo({
+  eventos,
+  rotulo,
+}: {
+  eventos: readonly EventoLinha[];
+  rotulo?: string;
+}) {
   const agora = new Date();
   return (
-    <ol className="linha-tempo">
+    <ol className="linha-tempo" aria-label={rotulo}>
       {eventos.map((evento, indice) => {
         const dia = rotuloDoDia(evento.instante, agora);
         const novoDia = indice === 0 || rotuloDoDia(eventos[indice - 1]!.instante, agora) !== dia;
+        const meta: readonly Par[] = [
+          ...(evento.ator ? ([['Ator', evento.ator]] as const) : []),
+          ...evento.contexto,
+        ];
         return (
           <Fragment key={evento.id}>
-            {novoDia && <li className="lt-dia">{dia}</li>}
-            <li className="lt-item">
-              <span className={`lt-marco ${evento.tom}`} aria-hidden="true" />
-              <div className="lt-conteudo">
+            {novoDia && (
+              <li className="lt-dia">
+                <span>{dia}</span>
+              </li>
+            )}
+            <li className={`lt-item ${CLASSE_DA_COR[evento.cor]}`}>
+              <span className="lt-marco" aria-hidden="true" />
+              <div className={`lt-conteudo tom-${evento.tom}`}>
                 <div className="lt-cabeca">
-                  <span className={`lt-tipo ${CLASSE_DA_COR[evento.cor]}`}>{evento.tipo}</span>
-                  <span className={`badge-soft ${evento.tom === 'ok' ? 'ok' : 'neutral'}`}>
+                  <span className="lt-tipo">{evento.categoria}</span>
+                  <span className={`badge-soft ${CLASSE_DO_SELO[evento.tom]}`}>
                     {evento.estado}
                   </span>
-                  <time className="lt-hora" dateTime={evento.instante}>
-                    {formatarInstante(evento.instante)}
+                  <time
+                    className="lt-hora"
+                    dateTime={evento.instante}
+                    title={formatarInstante(evento.instante)}
+                  >
+                    {horaDoEvento(evento.instante)}
                   </time>
-                  {evento.ator && <span className="lt-ator">{evento.ator}</span>}
                 </div>
                 <p className="lt-descricao">{evento.titulo}</p>
-                <div className="lt-contexto">
-                  {evento.chips.map(([rotulo, valor]) => (
-                    <span key={rotulo} className="lt-chip">
-                      <span className="rot">{rotulo}</span>
-                      {valor}
-                    </span>
-                  ))}
-                </div>
+                {meta.length > 0 && (
+                  <dl className="lt-meta">
+                    {meta.map(([chave, valor]) => (
+                      <div key={chave} className="lt-meta-item">
+                        <dt>{chave}</dt>
+                        <dd>{valor}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                )}
+                {evento.detalhes.length > 0 && (
+                  <details className="lt-detalhes">
+                    <summary>Detalhes técnicos</summary>
+                    <dl>
+                      {evento.detalhes.map(([chave, valor]) => (
+                        <div key={chave} className="lt-detalhe-linha">
+                          <dt>{chave}</dt>
+                          <dd>{valor}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                  </details>
+                )}
               </div>
             </li>
           </Fragment>
@@ -147,4 +221,9 @@ export function LinhaDoTempoPedido({ detalhe }: { detalhe: PedidoDetalhe }) {
       })}
     </ol>
   );
+}
+
+/** Timeline do draft "Detalhe da solicitação de acesso", derivada do detalhe do pedido. */
+export function LinhaDoTempoPedido({ detalhe }: { detalhe: PedidoDetalhe }) {
+  return <LinhaDoTempo eventos={eventosDoPedido(detalhe)} />;
 }

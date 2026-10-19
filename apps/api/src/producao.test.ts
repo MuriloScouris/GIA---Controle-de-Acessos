@@ -70,6 +70,50 @@ describe('configuração segura por ambiente', () => {
     expect(erro).toEqual(['GIA_DATABASE_URL', 'GIA_JIRA_API_TOKEN']);
   });
 
+  it('produção recusa verificação TLS desligada (M6), junto dos demais erros, só com os nomes', () => {
+    expect(
+      variaveis(() =>
+        prepararAmbienteApi(
+          {
+            GIA_AMBIENTE: 'producao',
+            GIA_DATABASE_URL: 'postgres://db/gia',
+            NODE_TLS_REJECT_UNAUTHORIZED: '0',
+          },
+          () => undefined,
+        ),
+      ),
+    ).toEqual(['NODE_TLS_REJECT_UNAUTHORIZED']);
+    expect(
+      variaveis(() =>
+        prepararAmbienteApi(
+          { GIA_AMBIENTE: 'producao', NODE_TLS_REJECT_UNAUTHORIZED: '0' },
+          () => undefined,
+        ),
+      ),
+    ).toEqual(['GIA_DATABASE_URL', 'NODE_TLS_REJECT_UNAUTHORIZED']);
+  });
+
+  it('fora de produção a API sobe com TLS desligado e registra o aviso na partida', () => {
+    for (const ambiente of ['desenvolvimento', 'teste']) {
+      const linhas: Record<string, unknown>[] = [];
+      const pronto = prepararAmbienteApi(
+        { GIA_AMBIENTE: ambiente, NODE_TLS_REJECT_UNAUTHORIZED: '0' },
+        (linha) => linhas.push(JSON.parse(linha) as Record<string, unknown>),
+      );
+      expect(pronto.config.ambiente).toBe(ambiente);
+      expect(linhas.find((l) => l['evento'] === 'tls_verificacao_desligada')).toMatchObject({
+        nivel: 'aviso',
+        variaveis: ['NODE_TLS_REJECT_UNAUTHORIZED'],
+      });
+    }
+    // Com a verificação ligada, nenhum aviso.
+    const linhas: string[] = [];
+    prepararAmbienteApi({ GIA_AMBIENTE: 'teste', NODE_TLS_REJECT_UNAUTHORIZED: '1' }, (linha) =>
+      linhas.push(linha),
+    );
+    expect(linhas.join('\n')).not.toContain('tls_verificacao_desligada');
+  });
+
   it('registra na partida o estado dos gates (auditoria operacional), sem segredo', () => {
     const linhas: string[] = [];
     prepararAmbienteApi(

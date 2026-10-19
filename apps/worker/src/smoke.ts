@@ -6,18 +6,27 @@ import {
 } from '@gia/contratos';
 import { resolverSegredosDeArquivo } from '@gia/contratos/segredos';
 import { SISTEMAS } from '@gia/dominio';
+import { exigirTlsVerificado } from '@gia/contratos';
 import { carregarConfiguracaoWorker } from './configuracao.js';
 import { conectoresReaisDoAmbiente } from './reais.js';
 
-/** Somente configuração ou leituras autenticadas; nunca consome fila nem provisiona/revoga. */
+/**
+ * Somente configuração ou leituras autenticadas; nunca consome fila nem
+ * provisiona/revoga. Com a verificação TLS desligada: em produção não roda;
+ * fora dela, roda, avisa em `avisos` e nunca dá `validado`. `montarReais` só
+ * é trocado em teste, para ensaiar leituras sem rede.
+ */
 export async function smokeIntegracoes(
   envOriginal: VariaveisAmbiente,
   somenteConfiguracao = false,
+  montarReais: typeof conectoresReaisDoAmbiente = conectoresReaisDoAmbiente,
 ) {
+  // Leitura autenticada com TLS desligado não comprova nada e expõe a credencial.
+  const tlsDesligado = exigirTlsVerificado(envOriginal);
   const env = await resolverSegredosDeArquivo(envOriginal);
   const config = carregarConfiguracaoWorker(env);
   const gates = carregarGatesDeEscrita(env);
-  const reais = await conectoresReaisDoAmbiente(env, config.politica);
+  const reais = await montarReais(env, config.politica);
   const sistemas = [];
   for (const sistema of SISTEMAS) {
     const conector = reais[sistema];
@@ -42,7 +51,9 @@ export async function smokeIntegracoes(
     escritaExterna: gates.escritaExterna,
     liberadas: gates.liberadas,
     sistemas,
-    validado: !somenteConfiguracao && sistemas.every((s) => s.status === 'disponivel'),
+    avisos: tlsDesligado ? ['tls_verificacao_desligada'] : [],
+    validado:
+      !tlsDesligado && !somenteConfiguracao && sistemas.every((s) => s.status === 'disponivel'),
   };
 }
 

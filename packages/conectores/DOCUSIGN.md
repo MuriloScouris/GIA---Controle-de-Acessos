@@ -66,6 +66,25 @@ Rotacionar a chave exige remontar o secret e recriar o cliente/reiniciar o proce
   idempotência. Após resultado incerto, o worker encaminha para reconciliação;
   não reenvie manualmente criação enquanto houver resultado desconhecido.
 
+## Política única de timeout (M5)
+
+Há um só caminho de configuração e de montagem, tanto no fluxo isolado
+(`criarConectorDocusignDoAmbiente`, homologação) quanto na composição do worker/API:
+
+1. `GIA_DOCUSIGN_TIMEOUT_MS` é validado **como veio**: inteiro de 100 a 25000 (padrão 20000).
+   Valor fora disso (`30000`, `1e3`, ` 500`, `12.5`…) falha a subida com o nome da variável; a
+   composição não o reescreve nem o reduz em silêncio.
+2. Só então o prazo do motor é aplicado como **teto**:
+   `timeoutMs = min(configurado, timeoutChamadaMs - 100)` (no máximo 25 s). Um valor configurado
+   menor continua valendo; o teto nunca o aumenta.
+3. `timeoutConexaoMs` vem do chamador (política do motor); sem ele, o `testarConexao` usa o prazo
+   de uma operação (`timeoutMs`), pois inclui OAuth e userinfo.
+4. Prazo vencido — o do cliente ou o do motor, propagado pelo fetch compartilhado — é sempre
+   `timeout` (`DOCUSIGN_TIMEOUT`, efeito desconhecido), nunca `respostaPerdida`.
+
+Implementação: `carregarConfiguracaoDocusign(env, { prazoMaximoMs })` e `montarConectorDocusign`
+(`src/docusign/`). M365 e SoftExpert seguem com o `limitar()` da composição, sem alteração.
+
 ## Falhas, resiliência e evidência
 
 Todas as requisições de uma operação compartilham um prazo com cancelamento via

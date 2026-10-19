@@ -19,6 +19,7 @@ import {
   type CatalogoSimulado,
 } from '@gia/conectores';
 import { configuracaoPadrao, type PoliticaExecucao } from '@gia/dominio';
+import { VARIAVEL_TLS_NODE, exigirTlsVerificado, tlsVerificacaoDesligada } from '@gia/contratos';
 import { criarBanco, criarPersistenciaPostgres, urlDoBanco } from '@gia/persistencia';
 import { executarCiclo } from './ciclo.js';
 import { carregarConfiguracaoWorker } from './configuracao.js';
@@ -80,10 +81,14 @@ function descreverEscrita(gates: GatesDeEscrita): string {
   return `escrita externa LIGADA: ${liberadas}`;
 }
 
-/** Valida a configuração (inclusive gates e segredos) e descreve como o worker vai rodar. */
+/**
+ * Valida a configuração (inclusive gates, segredos e TLS) e descreve como o
+ * worker vai rodar. Em produção, verificação TLS desligada impede a subida.
+ */
 export function iniciar(env: VariaveisAmbiente = process.env): string {
   const config = carregarConfiguracaoWorker(env);
   exigirSegredosForaDoAmbiente(env);
+  exigirTlsVerificado(env);
   const gates = carregarGatesDeEscrita(env);
   carregarSelecaoIntegracoes(env);
   if (portaDeMetricas(env[VARIAVEL_METRICAS_PORTA]) === 'invalida') {
@@ -111,6 +116,10 @@ export async function executarWorker(
     nivelMinimo: nivelDeLog(env['GIA_LOG_NIVEL']),
     saida: registrar,
   }).filho({ workerId: config.workerId });
+  // Fora de produção a subida segue, mas o desvio fica registrado na partida.
+  if (tlsVerificacaoDesligada(envOriginal)) {
+    log.aviso('tls_verificacao_desligada', { variaveis: [VARIAVEL_TLS_NODE] });
+  }
   const metricas = new RegistroMetricas();
   const obs = criarObservabilidadeWorker(log, metricas);
   const reais = await conectoresReaisDoAmbiente(env, politica, (evento) =>
