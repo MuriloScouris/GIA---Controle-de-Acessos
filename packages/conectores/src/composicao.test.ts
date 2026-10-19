@@ -1,9 +1,11 @@
+import { generateKeyPairSync } from 'node:crypto';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { resolverSegredosDeArquivo, type VariaveisAmbiente } from '@gia/contratos';
-import { SISTEMAS } from '@gia/dominio';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { POLITICA_EXECUCAO_PADRAO, SISTEMAS, type PoliticaExecucao } from '@gia/dominio';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { contexto, paramsDocusign } from './teste/fabricas.js';
 import {
   carregarSelecaoIntegracoes,
   criarIntegracoesDoAmbiente,
@@ -112,5 +114,109 @@ describe('criarLeiturasDoAmbiente (privilégio mínimo da API)', () => {
       GIA_AD_SENHA_ARQUIVO: join(pasta, 'nao-existe'),
     });
     expect(leituras.diretorio).toBeUndefined();
+  });
+});
+
+describe('política de timeout do DocuSign na composição (M5)', () => {
+  const ID = '00000000-0000-4000-8000-000000000001';
+  let pasta: string;
+  let base: VariaveisAmbiente;
+  beforeAll(async () => {
+    pasta = await mkdtemp(join(tmpdir(), 'gia-docusign-'));
+    const chave = join(pasta, 'chave.pem');
+    const { privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
+    await writeFile(join(pasta, 'segredo'), 'segredo-ficticio');
+    await writeFile(chave, privateKey.export({ type: 'pkcs8', format: 'pem' }));
+    base = {
+      GIA_AMBIENTE: 'teste',
+      GIA_DOCUSIGN_MODO: 'real',
+      GIA_DOCUSIGN_AMBIENTE: 'demo',
+      GIA_DOCUSIGN_INTEGRACAO_ID: ID,
+      GIA_DOCUSIGN_USUARIO_ID: ID,
+      GIA_DOCUSIGN_CONTA_ID: ID,
+      GIA_DOCUSIGN_CHAVE_PRIVADA_ARQUIVO: chave,
+    };
+  });
+  afterAll(async () => {
+    await rm(pasta, { recursive: true, force: true });
+  });
+
+  const politica = (timeoutChamadaMs: number): PoliticaExecucao => ({
+    ...POLITICA_EXECUCAO_PADRAO,
+    timeoutChamadaMs,
+    timeoutConexaoMs: Math.min(POLITICA_EXECUCAO_PADRAO.timeoutConexaoMs, timeoutChamadaMs),
+  });
+
+  /** Transporte que nunca responde: só termina quando o sinal é abortado. */
+  function transportePendurado() {
+    const sinais: AbortSignal[] = [];
+    const enviar = vi.fn(
+      (_url: string | URL | Request, init?: RequestInit) =>
+        new Promise<Response>((_resolver, rejeitar) => {
+          if (init?.signal) sinais.push(init.signal);
+          init?.signal?.addEventListener('abort', () => rejeitar(init.signal?.reason), {
+            once: true,
+          });
+        }),
+    );
+    return { enviar, sinais };
+  }
+
+  it('o cliente respeita o prazo do motor mesmo com o padrão de 20 s', async () => {
+    const { enviar, sinais } = transportePendurado();
+    const { reais } = await criarIntegracoesDoAmbiente(base, politica(700), undefined, {
+      fetch: enviar,
+    });
+    const inicio = Date.now();
+    const falha = reais.docusign!.conferirExistencia(contexto(paramsDocusign()));
+    // Limite interno = 700 - 100 ms: bem antes dos 20 s do padrão e sem passar do motor.
+    await expect(falha).rejects.toMatchObject({ tipo: 'timeout' });
+    expect(Date.now() - inicio).toBeLessThan(2_000);
+    expect(enviar).toHaveBeenCalledTimes(1);
+    expect(sinais.every((s) => s.aborted)).toBe(true);
+  });
+
+  it('um timeout configurado menor que o prazo do motor continua valendo', async () => {
+    const { enviar } = transportePendurado();
+    const { reais } = await criarIntegracoesDoAmbiente(
+      { ...base, GIA_DOCUSIGN_TIMEOUT_MS: '150' },
+      politica(30_000),
+      undefined,
+      { fetch: enviar },
+    );
+    const inicio = Date.now();
+    await expect(
+      reais.docusign!.conferirExistencia(contexto(paramsDocusign())),
+    ).rejects.toMatchObject({ tipo: 'timeout' });
+    expect(Date.now() - inicio).toBeLessThan(2_000);
+  });
+
+  it('valor fora do contrato do cliente é recusado na composição, sem clamp silencioso', async () => {
+    // 30000 passa de 25000 (máximo do cliente): antes o limitar() o reduzia ao prazo do motor.
+    for (const invalido of ['30000', '1e3', ' 500', '12.5']) {
+      const env = { ...base, GIA_DOCUSIGN_TIMEOUT_MS: invalido };
+      await expect(criarIntegracoesDoAmbiente(env, politica(30_000))).rejects.toThrow(
+        'GIA_DOCUSIGN_TIMEOUT_MS',
+      );
+      await expect(criarLeiturasDoAmbiente(env, politica(30_000))).rejects.toThrow(
+        'GIA_DOCUSIGN_TIMEOUT_MS',
+      );
+    }
+  });
+
+  it('não regride os demais conectores: o limitar() continua valendo para M365 e SoftExpert', async () => {
+    const m365 = {
+      GIA_M365_MODO: 'real',
+      GIA_M365_TENANT_ID: ID,
+      GIA_M365_CLIENT_ID: ID,
+      GIA_M365_CLIENT_SECRET_ARQUIVO: join(pasta, 'segredo'),
+    };
+    // Mesmo valor que o cliente M365 recusaria isoladamente (30000) é reduzido ao prazo do motor.
+    await expect(
+      criarIntegracoesDoAmbiente(
+        { GIA_AMBIENTE: 'teste', ...m365, GIA_M365_TIMEOUT_MS: '30000' },
+        politica(30_000),
+      ),
+    ).resolves.toBeDefined();
   });
 });

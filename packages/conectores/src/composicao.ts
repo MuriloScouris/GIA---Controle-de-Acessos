@@ -13,10 +13,9 @@ import {
   type Sistema,
 } from '@gia/dominio';
 import { criarConectorAd, type ClienteAd } from './adaptadores/ad.js';
-import { criarConectorDocusign } from './adaptadores/docusign.js';
 import { criarConectorM365, type ClienteGraph } from './adaptadores/m365.js';
 import { criarConsultaDiretorioReal } from './diretorio.js';
-import { criarClienteDocusignReal } from './docusign/cliente.js';
+import { montarConectorDocusign } from './docusign/cliente.js';
 import { carregarChaveDocusign, carregarConfiguracaoDocusign } from './docusign/configuracao.js';
 import { criarJiraDoAmbiente } from './jira/ambiente.js';
 import { ClienteGraphHttp } from './m365/cliente.js';
@@ -121,15 +120,10 @@ export async function criarIntegracoesDoAmbiente(
     });
   }
   if (selecionados.includes('docusign')) {
-    const config = carregarConfiguracaoDocusign({
-      ...env,
-      GIA_DOCUSIGN_TIMEOUT_MS: limitar('GIA_DOCUSIGN_TIMEOUT_MS', 20000),
-    });
+    // Política única do DocuSign (M5): valida o ambiente como o cliente isolado e só então limita ao prazo.
+    const config = carregarConfiguracaoDocusign(env, { prazoMaximoMs: prazo });
     const chave = await carregarChaveDocusign(config.chavePrivadaArquivo);
-    reais.docusign = criarConectorDocusign(
-      criarClienteDocusignReal(config, chave, { fetch: enviar }),
-      { modo: 'real', ...limites },
-    );
+    reais.docusign = montarConectorDocusign(config, chave, limites, { fetch: enviar });
   }
   if (selecionados.includes('softexpert')) {
     const config = carregarConfiguracaoSoftexpert({
@@ -244,10 +238,7 @@ export async function criarLeiturasDoAmbiente(
       })
     : undefined;
   if (selecionados.includes('docusign'))
-    carregarConfiguracaoDocusign({
-      ...env,
-      GIA_DOCUSIGN_TIMEOUT_MS: limitar('GIA_DOCUSIGN_TIMEOUT_MS', 20000),
-    });
+    carregarConfiguracaoDocusign(env, { prazoMaximoMs: prazo });
   if (selecionados.includes('softexpert'))
     carregarConfiguracaoSoftexpert({
       ...env,

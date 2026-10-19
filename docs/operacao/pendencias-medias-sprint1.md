@@ -16,7 +16,7 @@ Status possíveis: `pendente` → `em correção` → `corrigido (PR #n)` ou
 | M2 | Conector AD | O provisionamento do AD não registra `progressoConfirmado` entre etapas. Uma retomada depois de falha parcial (criar → senha → habilitar → grupos) não sabe em que etapa parou. | `packages/conectores/src/adaptadores/ad.ts:145` | Confirmar o progresso por etapa, como os demais conectores, e testar a retomada no meio da sequência. | pendente |
 | M3 | Prazo HTTP | `criarFetchComPrazo` chama `exigirPrazo()` depois da resposta. Uma resposta 2xx que chega no vencimento é descartada como timeout, mas a escrita pode ter ocorrido no destino. | `packages/conectores/src/prazo.ts:29` | Não descartar uma resposta já recebida, ou classificar o resultado como efeito desconhecido para reconciliação, nunca como falha limpa. | pendente |
 | M4 | Conector AD / LDAP | O timeout das operações LDAP não fica limitado pelo prazo restante do motor: usa o `timeoutOperacaoMs` fixo. | `packages/conectores/src/transportes/ldap.ts:178` | Usar o mínimo entre `timeoutOperacaoMs` e o prazo restante, como o HTTP. | pendente |
-| M5 | Conector DocuSign | Regressão de timeout na composição: o DocuSign recebe `limitar(...)` sobre o padrão de 20 s. Isso pode divergir dos timeouts próprios do cliente do #19. | `packages/conectores/src/composicao.ts:126-129` | Unificar a política de timeout do DocuSign com o cliente do #19 e cobrir com teste. | pendente |
+| M5 | Conector DocuSign | Regressão de timeout na composição: o DocuSign recebe `limitar(...)` sobre o padrão de 20 s. Isso pode divergir dos timeouts próprios do cliente do #19. | `packages/conectores/src/composicao.ts:126-129` | Unificar a política de timeout do DocuSign com o cliente do #19 e cobrir com teste. | corrigido (PR #28) |
 | M6 | TLS | `NODE_TLS_REJECT_UNAUTHORIZED=0` só é barrado no preflight. A API e o worker sobem normalmente com a verificação TLS desligada. | `apps/worker/src/preflight/preflight.ts:307` | Recusar a subida da API e do worker em `producao` com essa variável; idealmente, avisar em qualquer ambiente. | pendente |
 | M7 | Observabilidade | `/saude/pronta` é pública e expõe detalhes operacionais (versão, modo e liberações de escrita). | `apps/api/src/http/observabilidade.ts:85` | Na porta pública, responder só o status; mover os detalhes para a porta interna de métricas ou exigir autenticação. | pendente |
 | M8 | OIDC | `/sessao/oidc/entrar` não tem teto de requisições. Cada chamada cria um estado pendente (state/nonce/PKCE) em memória, o que permite abuso e consumo de memória. | `apps/api/src/http/rotas-oidc.ts` | Limitar a taxa por origem e o total de estados pendentes, com expiração curta. | pendente |
@@ -33,3 +33,19 @@ Os bloqueios de produção que não dependem de código, como validação real,
 sessões em memória e decisões de produto, estão em
 [`producao.md`](producao.md#pendências-para-produção) e na
 [matriz de prontidão](dev-292-prontidao.md).
+
+### M5 — como foi corrigido (DEV-298)
+
+- **Causa:** a composição reescrevia `GIA_DOCUSIGN_TIMEOUT_MS` com `limitar(...)` antes de o cliente
+  validar. Valores que o cliente isolado recusa (acima de 25000, `1e3`, com espaço) eram aceitos e
+  reduzidos em silêncio; além disso, um prazo do motor vencido antes do prazo próprio do cliente
+  virava `respostaPerdida` em vez de `timeout`.
+- **Correção:** o ambiente é validado como no fluxo isolado e o prazo do motor entra só como teto
+  (`carregarConfiguracaoDocusign(env, { prazoMaximoMs })`); a montagem do conector é única
+  (`montarConectorDocusign`); prazo vencido é sempre `timeout`. Política descrita em
+  [`DOCUSIGN.md`](../../packages/conectores/DOCUSIGN.md#política-única-de-timeout-m5).
+- **Testes:** `packages/conectores/src/docusign/cliente.test.ts` (política única e `TimeoutError`) e
+  `packages/conectores/src/composicao.test.ts` (prazo do motor com o padrão de 20 s, timeout menor
+  que o do motor, valores inválidos recusados, M365 sem regressão).
+- **Efeito operacional:** quem tinha `GIA_DOCUSIGN_TIMEOUT_MS` acima de 25000 passa a falhar na
+  subida (já era inválido na documentação). M365/SoftExpert não mudam.
