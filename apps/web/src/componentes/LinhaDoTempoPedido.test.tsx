@@ -90,3 +90,39 @@ describe('<LinhaDoTempoPedido>', () => {
     expect(titulos[1]).toMatch(/Pedido criado/);
   });
 });
+
+describe('<LinhaDoTempoPedido> hierarquia visual', () => {
+  it('mostra categoria, estado, hora e ator em campos distintos', () => {
+    render(
+      <LinhaDoTempoPedido
+        detalhe={pedido('2026-10-14T10:00:00Z', '2026-10-14T11:00:00Z', '2026-10-14T12:00:00Z')}
+      />,
+    );
+    const lista = screen.getByRole('list');
+    const decisao = within(lista)
+      .getByText(/Revisão 1 aprovada/)
+      .closest('li')!;
+    expect(within(decisao).getByText('Decisão')).toBeTruthy();
+    expect(within(decisao).getByText('Decidido')).toBeTruthy();
+    expect(within(decisao).getByText('Ator')).toBeTruthy();
+    expect(within(decisao).getByText('Revisora Ficticia')).toBeTruthy();
+    expect(decisao.querySelector('time')!.getAttribute('datetime')).toBe('2026-10-14T11:00:00Z');
+    const acesso = within(lista)
+      .getByText(/confirmado no destino/)
+      .closest('li')!;
+    expect(within(acesso).getByText('Sucesso')).toBeTruthy();
+    expect(within(acesso).getByText('Sistema')).toBeTruthy();
+    expect(within(acesso).queryByText('Ator')).toBeNull();
+  });
+
+  it('agrupa por dia com um cabeçalho por data', () => {
+    render(
+      <LinhaDoTempoPedido
+        detalhe={pedido('2026-10-13T10:00:00Z', '2026-10-14T11:00:00Z', '2026-10-14T12:00:00Z')}
+      />,
+    );
+    const itens = within(screen.getByRole('list')).getAllByRole('listitem');
+    const cabecalhos = itens.filter((li) => li.classList.contains('lt-dia'));
+    expect(cabecalhos).toHaveLength(2);
+  });
+});
