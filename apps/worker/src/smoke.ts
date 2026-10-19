@@ -1,9 +1,5 @@
 import { pathToFileURL } from 'node:url';
-import {
-  ErroConfiguracao,
-  carregarGatesDeEscrita,
-  type VariaveisAmbiente,
-} from '@gia/contratos';
+import { ErroConfiguracao, carregarGatesDeEscrita, type VariaveisAmbiente } from '@gia/contratos';
 import { resolverSegredosDeArquivo } from '@gia/contratos/segredos';
 import { SISTEMAS } from '@gia/dominio';
 import { exigirTlsVerificado } from '@gia/contratos';

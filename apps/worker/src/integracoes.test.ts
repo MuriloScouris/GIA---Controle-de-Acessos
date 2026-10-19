@@ -2,10 +2,7 @@ import { generateKeyPairSync, randomUUID } from 'node:crypto';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import {
-  carregarGatesDeEscrita,
-  type VariaveisAmbiente,
-} from '@gia/contratos';
+import { carregarGatesDeEscrita, type VariaveisAmbiente } from '@gia/contratos';
 import { resolverSegredosDeArquivo } from '@gia/contratos/segredos';
 import { POLITICA_EXECUCAO_PADRAO, SISTEMAS } from '@gia/dominio';
 import { criarPersistenciaPostgres } from '@gia/persistencia';
