@@ -1,6 +1,9 @@
+import { randomUUID } from 'node:crypto';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { ErroConfiguracao } from '@gia/contratos';
 import { describe, expect, it } from 'vitest';
-import { POLITICA_EXECUCAO_PADRAO, SISTEMAS } from '@gia/dominio';
+import { POLITICA_EXECUCAO_PADRAO, SISTEMAS, type Conector } from '@gia/dominio';
 import {
   carregarConfiguracaoWorker,
   executarWorker,
@@ -8,6 +11,7 @@ import {
   LIMITE_POR_SISTEMA_PADRAO,
   montarConectores,
 } from './index.js';
+import { smokeIntegracoes } from './smoke.js';
 
 describe('@gia/worker', () => {
   it('inicia com escrita externa desligada', () => {
@@ -128,6 +132,125 @@ describe('@gia/worker', () => {
         disponivel: true,
       });
     }
+  });
+
+  it('produção recusa verificação TLS desligada (M6), citando só o nome', async () => {
+    const env = { GIA_AMBIENTE: 'producao', NODE_TLS_REJECT_UNAUTHORIZED: '0' };
+    expect(() => iniciar(env)).toThrow('Configuração inválida: NODE_TLS_REJECT_UNAUTHORIZED');
+    const linhas: string[] = [];
+    await expect(
+      executarWorker(env, new AbortController().signal, (l) => linhas.push(l)),
+    ).rejects.toThrow('Configuração inválida: NODE_TLS_REJECT_UNAUTHORIZED');
+    // Recusa antes de ler o cofre, abrir conectores ou o banco: nada foi registrado.
+    expect(linhas).toEqual([]);
+    await expect(smokeIntegracoes(env, true)).rejects.toThrow(
+      'Configuração inválida: NODE_TLS_REJECT_UNAUTHORIZED',
+    );
+  });
+
+  it('fora de produção o worker sobe com TLS desligado e registra o aviso na partida', async () => {
+    const env = { GIA_AMBIENTE: 'teste', NODE_TLS_REJECT_UNAUTHORIZED: '0' };
+    expect(iniciar(env)).toContain('escrita externa desligada');
+    const linhas: string[] = [];
+    // Sem banco o worker para logo depois; o aviso já saiu na partida.
+    await expect(
+      executarWorker(env, new AbortController().signal, (l) => linhas.push(l)),
+    ).rejects.toThrow('GIA_DATABASE_URL');
+    expect(linhas.map((l) => JSON.parse(l) as Record<string, unknown>)).toContainEqual(
+      expect.objectContaining({
+        evento: 'tls_verificacao_desligada',
+        nivel: 'aviso',
+        variaveis: ['NODE_TLS_REJECT_UNAUTHORIZED'],
+      }),
+    );
+  });
+
+  it('worker e smoke em produção recusam TLS desligado antes de ler o cofre (M6, ordem)', async () => {
+    const ausente = join(tmpdir(), `gia-cofre-ausente-${randomUUID()}`);
+    const comCofre = { GIA_AMBIENTE: 'producao', GIA_DATABASE_URL_ARQUIVO: ausente };
+    const erroDe = (promessa: Promise<unknown>) =>
+      promessa.then(
+        () => new Error('não deveria concluir'),
+        (e: unknown) => e,
+      );
+    const sinal = new AbortController().signal;
+    // Controle: com a verificação ligada, os dois chegam ao cofre e falham nele.
+    for (const erro of [
+      await erroDe(executarWorker(comCofre, sinal, () => undefined)),
+      await erroDe(smokeIntegracoes(comCofre, true)),
+    ]) {
+      expect(erro).toBeInstanceOf(ErroConfiguracao);
+      expect((erro as ErroConfiguracao).variaveis).toEqual(['GIA_DATABASE_URL_ARQUIVO']);
+    }
+    const desligado = { ...comCofre, NODE_TLS_REJECT_UNAUTHORIZED: '0' };
+    for (const erro of [
+      await erroDe(executarWorker(desligado, sinal, () => undefined)),
+      await erroDe(smokeIntegracoes(desligado, true)),
+    ]) {
+      expect(erro).toBeInstanceOf(ErroConfiguracao);
+      expect((erro as ErroConfiguracao).variaveis).toEqual(['NODE_TLS_REJECT_UNAUTHORIZED']);
+      expect((erro as Error).message).not.toContain(ausente);
+    }
+  });
+
+  it('fora de produção o smoke roda com TLS desligado, avisa e não dá validado (M6)', async () => {
+    const desligado = await smokeIntegracoes(
+      { GIA_AMBIENTE: 'teste', NODE_TLS_REJECT_UNAUTHORIZED: '0' },
+      true,
+    );
+    expect(desligado.avisos).toEqual(['tls_verificacao_desligada']);
+    expect(desligado.validado).toBe(false);
+    const ligado = await smokeIntegracoes({ GIA_AMBIENTE: 'teste' }, true);
+    expect(ligado.avisos).toEqual([]);
+  });
+
+  it('smoke de leitura: só a verificação TLS desligada emite o aviso e tira o validado (M6)', async () => {
+    // Cinco conectores que respondem disponíveis, sem rede: com TLS ligado o
+    // smoke de leitura valida; a única diferença entre os dois casos é o TLS.
+    const chamadas: string[] = [];
+    const disponiveis = async () =>
+      Object.fromEntries(
+        SISTEMAS.map((sistema) => [
+          sistema,
+          {
+            testarConexao: async () => {
+              chamadas.push(sistema);
+              return { modo: 'real', disponivel: true, codigo: 'OK', mensagem: 'ok' } as const;
+            },
+          } as unknown as Conector,
+        ]),
+      );
+    const env = { GIA_AMBIENTE: 'teste' };
+
+    const ligado = await smokeIntegracoes(env, false, disponiveis);
+    expect(ligado.escopo).toBe('leitura');
+    expect(ligado.sistemas.every((s) => s.status === 'disponivel')).toBe(true);
+    expect(ligado.validado).toBe(true);
+    expect(ligado.avisos).toEqual([]);
+
+    for (const valor of ['1', '']) {
+      const outro = await smokeIntegracoes(
+        { ...env, NODE_TLS_REJECT_UNAUTHORIZED: valor },
+        false,
+        disponiveis,
+      );
+      expect(outro.avisos).toEqual([]);
+      expect(outro.validado).toBe(true);
+    }
+
+    chamadas.length = 0;
+    const desligado = await smokeIntegracoes(
+      { ...env, NODE_TLS_REJECT_UNAUTHORIZED: '0' },
+      false,
+      disponiveis,
+    );
+    // As leituras rodaram e responderam disponíveis; mesmo assim não valida.
+    expect(chamadas.sort()).toEqual([...SISTEMAS].sort());
+    expect(desligado.sistemas.every((s) => s.status === 'disponivel')).toBe(true);
+    expect(desligado.avisos).toEqual(['tls_verificacao_desligada']);
+    expect(desligado.validado).toBe(false);
+    // O relatório não carrega o valor da variável.
+    expect(JSON.stringify(desligado)).not.toContain('NODE_TLS_REJECT_UNAUTHORIZED');
   });
 
   it('sem URL do banco o worker não sobe', async () => {

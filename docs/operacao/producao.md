@@ -30,6 +30,19 @@ Regras aplicadas no arranque (o erro cita só nomes de variáveis):
   `GIA_*SENHA*`, `*TOKEN*`, `*SECRET*`, `*CHAVE*`… passado por valor, ou URL
   com `usuario:senha@`, impede a subida. Use `<NOME>_ARQUIVO` montado pelo
   cofre. Fora de produção, a API registra o aviso `segredo_no_ambiente`.
+- **Verificação TLS obrigatória:** em `producao`, `NODE_TLS_REJECT_UNAUTHORIZED=0`
+  (no ambiente recebido ou no do processo) impede a subida da API, do worker e
+  do `smoke:integracoes`. A recusa vem **antes de ler qualquer arquivo do
+  cofre**, e o erro cita só o nome da variável. A variável desliga a checagem
+  de certificado de todas as conexões do processo: LDAPS, HTTPS dos
+  conectores, OIDC e PostgreSQL. Para uma CA interna, configure a CA de cada
+  conector (por exemplo, `GIA_AD_CA_ARQUIVO`) ou `NODE_EXTRA_CA_CERTS`; nunca
+  desligue a verificação. Fora de produção nada é bloqueado:
+  - a API e o worker sobem e registram o aviso `tls_verificacao_desligada` no
+    log da partida;
+  - o `smoke:integracoes` roda, traz `avisos: ["tls_verificacao_desligada"]`
+    no relatório e nunca sai `validado`, porque uma leitura sem verificação de
+    certificado não comprova a conexão.
 - **Produção e escrita real exigem PostgreSQL:** a memória do processo perderia
   a fila e os eventos de auditoria num reinício.
 - **Login:** em `producao` a API só sobe com o OIDC completo (`GIA_OIDC_*`) e

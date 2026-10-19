@@ -20,3 +20,6 @@ export * from './segredos.js';
 export * from './observabilidade.js';
 
 export * from './historico.js';
+
+// Sem módulos do Node: pode ficar na raiz, ao lado dos contratos.
+export * from './tls.js';

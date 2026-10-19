@@ -12,6 +12,7 @@ import {
 } from '@gia/contratos';
 import { criarBanco, criarPersistenciaPostgres } from '@gia/persistencia';
 import type { FastifyInstance } from 'fastify';
+import { exigirTlsVerificado } from '@gia/contratos';
 import { criarApp } from './app.js';
 import { prepararAmbienteApi, type AmbienteApi } from './producao.js';
 import { autenticacaoDoAmbiente } from './sessao/autenticacao-ambiente.js';
@@ -68,11 +69,14 @@ export function criarAppDoAmbiente(
 
 /**
  * Valida a configuração antes de abrir a porta; falha com erro sanitizado se
- * inválida. Segredos `*_ARQUIVO` (ex.: `GIA_DATABASE_URL_ARQUIVO`) são lidos do
- * cofre aqui. Com `GIA_METRICAS_PORTA`, as métricas sobem numa porta separada,
+ * inválida. Em produção, verificação TLS desligada é recusada antes de tudo,
+ * inclusive antes de ler o cofre. Segredos `*_ARQUIVO` (ex.:
+ * `GIA_DATABASE_URL_ARQUIVO`) são lidos do cofre aqui. Com `GIA_METRICAS_PORTA`, as métricas sobem numa porta separada,
  * em loopback.
  */
 export async function iniciarApi(env: VariaveisAmbiente = process.env): Promise<FastifyInstance> {
+  // Nenhum segredo é aberto num processo que aceitaria qualquer certificado.
+  exigirTlsVerificado(env);
   const resolvido = await resolverSegredosDeArquivo(env);
   const ambiente = prepararAmbienteApi(resolvido);
   // Valida seleção e configurações antes de abrir banco/porta. Privilégio mínimo:
