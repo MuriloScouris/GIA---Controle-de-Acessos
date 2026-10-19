@@ -1,3 +1,6 @@
+import { randomUUID } from 'node:crypto';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { ErroConfiguracao } from '@gia/contratos';
 import { describe, expect, it } from 'vitest';
 import { POLITICA_EXECUCAO_PADRAO, SISTEMAS } from '@gia/dominio';
@@ -160,6 +163,45 @@ describe('@gia/worker', () => {
         variaveis: ['NODE_TLS_REJECT_UNAUTHORIZED'],
       }),
     );
+  });
+
+  it('worker e smoke em produção recusam TLS desligado antes de ler o cofre (M6, ordem)', async () => {
+    const ausente = join(tmpdir(), `gia-cofre-ausente-${randomUUID()}`);
+    const comCofre = { GIA_AMBIENTE: 'producao', GIA_DATABASE_URL_ARQUIVO: ausente };
+    const erroDe = (promessa: Promise<unknown>) =>
+      promessa.then(
+        () => new Error('não deveria concluir'),
+        (e: unknown) => e,
+      );
+    const sinal = new AbortController().signal;
+    // Controle: com a verificação ligada, os dois chegam ao cofre e falham nele.
+    for (const erro of [
+      await erroDe(executarWorker(comCofre, sinal, () => undefined)),
+      await erroDe(smokeIntegracoes(comCofre, true)),
+    ]) {
+      expect(erro).toBeInstanceOf(ErroConfiguracao);
+      expect((erro as ErroConfiguracao).variaveis).toEqual(['GIA_DATABASE_URL_ARQUIVO']);
+    }
+    const desligado = { ...comCofre, NODE_TLS_REJECT_UNAUTHORIZED: '0' };
+    for (const erro of [
+      await erroDe(executarWorker(desligado, sinal, () => undefined)),
+      await erroDe(smokeIntegracoes(desligado, true)),
+    ]) {
+      expect(erro).toBeInstanceOf(ErroConfiguracao);
+      expect((erro as ErroConfiguracao).variaveis).toEqual(['NODE_TLS_REJECT_UNAUTHORIZED']);
+      expect((erro as Error).message).not.toContain(ausente);
+    }
+  });
+
+  it('fora de produção o smoke roda com TLS desligado, avisa e não dá validado (M6)', async () => {
+    const desligado = await smokeIntegracoes(
+      { GIA_AMBIENTE: 'teste', NODE_TLS_REJECT_UNAUTHORIZED: '0' },
+      true,
+    );
+    expect(desligado.avisos).toEqual(['tls_verificacao_desligada']);
+    expect(desligado.validado).toBe(false);
+    const ligado = await smokeIntegracoes({ GIA_AMBIENTE: 'teste' }, true);
+    expect(ligado.avisos).toEqual([]);
   });
 
   it('sem URL do banco o worker não sobe', async () => {
