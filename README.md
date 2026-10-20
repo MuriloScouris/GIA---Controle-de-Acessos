@@ -140,6 +140,20 @@ pnpm --filter @gia/tests test      # só os ponta a ponta
 Cada arquivo de teste de banco cria um PostgreSQL descartável a partir de
 `GIA_DATABASE_URL_TESTE` e o apaga no fim. No CI a variável é obrigatória.
 
+**Carga e tempo.** O `turbo.json` limita a 2 tarefas ao mesmo tempo (`concurrency`) e cada pacote
+roda o `vitest` com `--maxWorkers=50%`: juntos, não passam do número de núcleos. Com o padrão
+(10 tarefas, cada uma com quase um worker por núcleo) a máquina ficava muito sobrecarregada e testes
+saudáveis estouravam o tempo; o limite se muda com `pnpm test --concurrency=N`. Ao escrever um teste:
+
+- Não dependa de janelas reais curtas (5 a 500 ms) para decidir "antes" ou "depois" de um prazo: use
+  `vi.useFakeTimers({ toFake: ['Date', 'setTimeout'] })` e deixe o teste avançar o relógio
+  (exemplos: `packages/conectores/src/prazo.test.ts`, caso M3 em `docusign/cliente.test.ts`).
+- Transporte falso que "nunca responde" deve usar `penduradoAteAbortar`
+  (`packages/conectores/src/teste/pendurado.ts`): só escutar o evento `abort` prende o teste se o
+  sinal já abortou antes da chamada.
+- Não aumente o timeout do vitest para curar lentidão; se um teste precisa de folga por um motivo
+  próprio (por exemplo, gerar chave RSA), dê o prazo só a ele e comente o porquê.
+
 ## Estrutura
 
 | Pasta                   | O que é                                                                       |

@@ -7,7 +7,7 @@
     "build": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint .",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run",
+    "test": "vitest run --maxWorkers=50%",
     "test:browser": "playwright test --config playwright.config.ts"
   },
   "devDependencies": {
