@@ -1,6 +1,6 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ErroFornecedor } from './erros.js';
-import { criarFetchComPrazo, dentroDoPrazo } from './prazo.js';
+import { criarFetchComPrazo, dentroDoPrazo, limitarAoPrazo } from './prazo.js';
 
 const esperar = (ms: number) => new Promise((resolver) => setTimeout(resolver, ms));
 
@@ -96,5 +96,53 @@ describe('criarFetchComPrazo: resposta antes e depois do prazo (M3)', () => {
     ).catch((erro: unknown) => erro);
     expect(falha).toMatchObject({ tipo: 'timeout', codigo: 'INTEGRACAO_TIMEOUT' });
     expect(chamadas).not.toHaveBeenCalled();
+  });
+});
+
+describe('limitarAoPrazo: menor entre o timeout próprio e o prazo restante (M4)', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  function comRelogio(prazoMs: number, executar: (avancar: (ms: number) => void) => void) {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    return dentroDoPrazo(prazoMs, async () => executar((ms) => vi.setSystemTime(Date.now() + ms)));
+  }
+
+  it('prazo restante menor: devolve o que resta', async () => {
+    await comRelogio(1_000, (avancar) => {
+      avancar(400);
+      expect(limitarAoPrazo(10_000)).toBe(600);
+    });
+  });
+
+  it('prazo restante maior: devolve o timeout próprio', async () => {
+    await comRelogio(60_000, (avancar) => {
+      avancar(1_000);
+      expect(limitarAoPrazo(300)).toBe(300);
+    });
+  });
+
+  it('prazo igual ao timeout: devolve o mesmo valor', async () => {
+    await comRelogio(500, () => {
+      expect(limitarAoPrazo(500)).toBe(500);
+    });
+  });
+
+  it('prazo vencido (inclusive no último milissegundo): lança timeout do motor', async () => {
+    await comRelogio(300, (avancar) => {
+      avancar(300);
+      expect(() => limitarAoPrazo(10_000)).toThrow(ErroFornecedor);
+      avancar(5_000);
+      expect(() => limitarAoPrazo(10_000)).toThrowError(
+        expect.objectContaining({ tipo: 'timeout', codigo: 'INTEGRACAO_TIMEOUT' }),
+      );
+    });
+  });
+
+  it('fora de dentroDoPrazo: só o timeout próprio; nunca zero nem fracionário', () => {
+    expect(limitarAoPrazo(250)).toBe(250);
+    expect(limitarAoPrazo(0.2)).toBe(1);
+    expect(limitarAoPrazo(100.4)).toBe(101);
   });
 });
