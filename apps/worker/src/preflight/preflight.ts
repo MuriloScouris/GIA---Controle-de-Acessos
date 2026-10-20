@@ -3,6 +3,7 @@ import {
   ErroConfiguracao,
   carregarGatesDeEscrita,
   chamadoJiraSchema,
+  prontidaoPublicaRespostaSchema,
   prontidaoRespostaSchema,
   type VariaveisAmbiente,
 } from '@gia/contratos';
@@ -244,27 +245,73 @@ async function verificarApi(
         );
         continue;
       }
-      const lido = prontidaoRespostaSchema.safeParse(await r.json());
-      if (
-        !lido.success ||
-        r.status !== 200 ||
-        lido.data.status !== 'pronta' ||
-        lido.data.ambiente !== env['GIA_AMBIENTE'] ||
-        lido.data.verificacoes['persistencia'] !== 'ok' ||
-        Object.values(lido.data.verificacoes).some((v) => v !== 'ok')
-      )
+      // Porta pública (M7): só o status. Detalhe exposto publicamente é proteção inválida.
+      const publica = prontidaoPublicaRespostaSchema.safeParse(await r.json());
+      if (!publica.success) checks.push(bloco(nome, 'API_PROTECAO_INVALIDA'));
+      else if (r.status !== 200 || publica.data.status !== 'pronta')
         checks.push(bloco(nome, 'API_NAO_PRONTA'));
-      else
-        checks.push(
-          lido.data.escrita.modo === 'simulado' && lido.data.escrita.liberadas.length === 0
-            ? ok(nome)
-            : bloco(nome, 'API_ESCRITA_HABILITADA'),
-        );
+      else checks.push(await verificarProntidaoInterna(env, enviar, timeoutMs));
     } catch {
       checks.push(bloco(nome, 'API_NAO_PRONTA'));
     }
   }
   return checks;
+}
+
+/**
+ * Ambiente, verificações e gates efetivos da API, lidos na porta interna
+ * (`GIA_PREFLIGHT_API_INTERNA_URL`, só HTTP em loopback: é o servidor de
+ * métricas da API). Sem ela, a escrita da API fica sem confirmação e o check
+ * bloqueia: nunca se presume desligada.
+ */
+async function verificarProntidaoInterna(
+  env: VariaveisAmbiente,
+  enviar: typeof fetch,
+  timeoutMs: number,
+): Promise<Check> {
+  const bruto = env['GIA_PREFLIGHT_API_INTERNA_URL'];
+  let base: URL;
+  try {
+    base = new URL(bruto ?? '');
+    if (
+      base.username ||
+      base.password ||
+      base.search ||
+      base.hash ||
+      base.pathname !== '/' ||
+      base.protocol !== 'http:' ||
+      !['127.0.0.1', 'localhost', '[::1]'].includes(base.hostname)
+    )
+      throw new Error();
+  } catch {
+    return bloco('prontidaoApi', bruto ? 'CONFIGURACAO_INVALIDA' : 'API_INTERNA_NAO_CONFIGURADA');
+  }
+  try {
+    const sinal = AbortSignal.timeout(timeoutMs);
+    const r = await respostaLimitada(
+      await enviar(new URL('/saude/pronta', base), {
+        method: 'GET',
+        redirect: 'error',
+        signal: sinal,
+      }),
+      sinal,
+    );
+    const lido = prontidaoRespostaSchema.safeParse(await r.json());
+    if (
+      !lido.success ||
+      r.status !== 200 ||
+      lido.data.status !== 'pronta' ||
+      lido.data.ambiente !== env['GIA_AMBIENTE'] ||
+      lido.data.verificacoes['persistencia'] !== 'ok' ||
+      Object.values(lido.data.verificacoes).some((v) => v !== 'ok')
+    )
+      return bloco('prontidaoApi', 'API_NAO_PRONTA');
+    return lido.data.escrita.modo === 'simulado' && lido.data.escrita.liberadas.length === 0
+      ? ok('prontidaoApi')
+      : bloco('prontidaoApi', 'API_ESCRITA_HABILITADA');
+  } catch {
+    return bloco('prontidaoApi', 'API_NAO_PRONTA');
+  }
 }
 
 /** Somente leituras. Nenhuma opção remove pendência de homologação ou habilita escrita. */

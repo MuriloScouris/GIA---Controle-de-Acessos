@@ -1,5 +1,9 @@
 import { pathToFileURL } from 'node:url';
-import { prontidaoRespostaSchema, type VariaveisAmbiente } from '@gia/contratos';
+import {
+  prontidaoPublicaRespostaSchema,
+  prontidaoRespostaSchema,
+  type VariaveisAmbiente,
+} from '@gia/contratos';
 
 /**
  * Smoke test pós-deploy, somente leitura: não cria pedido, não abre sessão e
@@ -15,14 +19,54 @@ export interface VerificacaoSmoke {
 
 export interface OpcoesSmoke {
   readonly url: string;
-  /** URL das métricas (porta interna), se o ambiente as expõe. */
+  /**
+   * URL das métricas na porta interna (`GIA_SMOKE_METRICAS_URL`), obrigatória:
+   * só `http://` de loopback, com caminho `/metrics`. A prontidão detalhada é
+   * lida na mesma origem, em `/saude/pronta`. Ausente ou inválida, as
+   * verificações internas falham sem fazer nenhuma chamada.
+   */
   readonly urlMetricas?: string;
-  /** Modo de escrita esperado; divergência é falha (ex.: escrita ligada sem querer). */
+  /**
+   * Modo de escrita esperado; divergência é falha (ex.: escrita ligada sem
+   * querer). Só a porta interna informa o modo, então exige `urlMetricas`.
+   */
   readonly modoEsperado?: 'real' | 'simulado';
   /** Em produção o login simulado não pode existir. */
   readonly producao?: boolean;
   readonly fetch?: typeof fetch;
   readonly timeoutMs?: number;
+}
+
+const HOSTS_LOOPBACK = ['127.0.0.1', 'localhost', '[::1]'];
+
+/**
+ * Valida a URL da porta interna antes de qualquer chamada: o smoke só certifica
+ * os gates da API deste host, nunca os de outro servidor.
+ */
+export function urlInternaValida(bruta: string | undefined): URL {
+  if (bruta === undefined || bruta.trim() === '') {
+    throw new Error('porta interna obrigatória: informe GIA_SMOKE_METRICAS_URL');
+  }
+  let url: URL;
+  try {
+    url = new URL(bruta);
+  } catch {
+    throw new Error('GIA_SMOKE_METRICAS_URL inválida');
+  }
+  if (
+    url.protocol !== 'http:' ||
+    !HOSTS_LOOPBACK.includes(url.hostname) ||
+    url.username !== '' ||
+    url.password !== '' ||
+    url.search !== '' ||
+    url.hash !== '' ||
+    !['/metrics', '/metricas'].includes(url.pathname)
+  ) {
+    throw new Error(
+      'GIA_SMOKE_METRICAS_URL deve ser http:// de loopback com /metrics, sem credenciais nem query',
+    );
+  }
+  return url;
 }
 
 export async function executarSmoke(opcoes: OpcoesSmoke): Promise<readonly VerificacaoSmoke[]> {
@@ -60,6 +104,24 @@ export async function executarSmoke(opcoes: OpcoesSmoke): Promise<readonly Verif
 
   await verificar('prontidao', async () => {
     const res = await pedir('/saude/pronta');
+    // Porta pública (M7): só o status. Qualquer detalhe a mais é vazamento.
+    const lido = prontidaoPublicaRespostaSchema.safeParse(await res.json());
+    exigir(lido.success, '/saude/pronta pública expõe mais que o status');
+    exigir(
+      res.status === 200 && lido.data?.status === 'pronta',
+      `/saude/pronta respondeu ${res.status}`,
+    );
+    return '/saude/pronta 200, só o status';
+  });
+
+  // A porta interna é obrigatória: só ela informa ambiente, verificações e a escrita.
+  await verificar('prontidao_interna', async () => {
+    const interna = urlInternaValida(opcoes.urlMetricas);
+    const res = await enviar(new URL('/saude/pronta', interna), {
+      redirect: 'manual',
+      signal: AbortSignal.timeout(prazo),
+    });
+    exigir(res.status !== 0 && (res.status < 300 || res.status >= 400), 'redirect recusado');
     const corpo = prontidaoRespostaSchema.parse(await res.json());
     const falhas = Object.entries(corpo.verificacoes).filter(([, v]) => v === 'falha');
     exigir(
@@ -101,17 +163,17 @@ export async function executarSmoke(opcoes: OpcoesSmoke): Promise<readonly Verif
     });
   }
 
-  if (opcoes.urlMetricas !== undefined) {
-    await verificar('metricas', async () => {
-      const res = await enviar(opcoes.urlMetricas!, { signal: AbortSignal.timeout(prazo) });
-      const texto = await res.text();
-      exigir(
-        res.status === 200 && texto.includes('gia_api_requisicoes_total'),
-        'métricas indisponíveis',
-      );
-      return 'métricas expostas';
-    });
-  }
+  await verificar('metricas', async () => {
+    const interna = urlInternaValida(opcoes.urlMetricas);
+    const res = await enviar(interna, { redirect: 'manual', signal: AbortSignal.timeout(prazo) });
+    exigir(res.status !== 0 && (res.status < 300 || res.status >= 400), 'redirect recusado');
+    const texto = await res.text();
+    exigir(
+      res.status === 200 && texto.includes('gia_api_requisicoes_total'),
+      'métricas indisponíveis',
+    );
+    return 'métricas expostas';
+  });
   return verificacoes;
 }
 

@@ -1,9 +1,22 @@
 import { randomUUID } from 'node:crypto';
+import { createServer, type AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { ErroConfiguracao } from '@gia/contratos';
+import { ErroConfiguracao, prontidaoRespostaSchema } from '@gia/contratos';
 import { expect, it } from 'vitest';
 import { iniciarApi } from './index.js';
+
+/** Porta TCP livre em loopback, liberada antes de devolver. */
+function portaLivre(): Promise<number> {
+  return new Promise((resolver, rejeitar) => {
+    const servidor = createServer();
+    servidor.once('error', rejeitar);
+    servidor.listen(0, '127.0.0.1', () => {
+      const { port } = servidor.address() as AddressInfo;
+      servidor.close(() => resolver(port));
+    });
+  });
+}
 
 /** Erro de configuração de `iniciarApi`, ou falha do teste se subir. */
 async function erroDeArranque(env: Record<string, string>): Promise<ErroConfiguracao> {
@@ -60,4 +73,36 @@ it('API recusa token inline em produção mesmo com arquivo declarado', async ()
       GIA_JIRA_API_TOKEN_ARQUIVO: '/inexistente',
     }),
   ).rejects.toThrow('GIA_JIRA_API_TOKEN');
+});
+
+it('iniciarApi: a porta pública dá só o status; a interna, em loopback, dá o detalhe (M7)', async () => {
+  const [porta, portaMetricas] = [await portaLivre(), await portaLivre()];
+  const app = await iniciarApi({
+    GIA_AMBIENTE: 'teste',
+    PORT: String(porta),
+    GIA_METRICAS_PORTA: String(portaMetricas),
+    GIA_VERSAO: 'arranque-1',
+    GIA_LOG_NIVEL: 'erro',
+  });
+  try {
+    const publica = await fetch(`http://127.0.0.1:${porta}/saude/pronta`);
+    expect(publica.status).toBe(200);
+    expect(await publica.json()).toEqual({ status: 'pronta' });
+
+    const interna = await fetch(`http://127.0.0.1:${portaMetricas}/saude/pronta`);
+    expect(interna.status).toBe(200);
+    expect(prontidaoRespostaSchema.parse(await interna.json())).toEqual({
+      status: 'pronta',
+      ambiente: 'teste',
+      versao: 'arranque-1',
+      verificacoes: { persistencia: 'ok' },
+      escrita: { modo: 'simulado', liberadas: [] },
+    });
+    // As métricas continuam na mesma porta interna.
+    expect(await (await fetch(`http://127.0.0.1:${portaMetricas}/metrics`)).text()).toContain(
+      'gia_api_requisicoes_total',
+    );
+  } finally {
+    await app.close();
+  }
 });

@@ -11,6 +11,7 @@ import { criarBanco, criarPersistenciaPostgres } from '@gia/persistencia';
 import type { FastifyInstance } from 'fastify';
 import { exigirTlsVerificado } from '@gia/contratos';
 import { criarApp } from './app.js';
+import { prontidaoDetalhadaDe } from './http/observabilidade.js';
 import { prepararAmbienteApi, type AmbienteApi } from './producao.js';
 import { autenticacaoDoAmbiente } from './sessao/autenticacao-ambiente.js';
 
@@ -68,8 +69,8 @@ export function criarAppDoAmbiente(
  * Valida a configuração antes de abrir a porta; falha com erro sanitizado se
  * inválida. Em produção, verificação TLS desligada é recusada antes de tudo,
  * inclusive antes de ler o cofre. Segredos `*_ARQUIVO` (ex.:
- * `GIA_DATABASE_URL_ARQUIVO`) são lidos do cofre aqui. Com `GIA_METRICAS_PORTA`, as métricas sobem numa porta separada,
- * em loopback.
+ * `GIA_DATABASE_URL_ARQUIVO`) são lidos do cofre aqui. Com `GIA_METRICAS_PORTA`,
+ * as métricas e a prontidão detalhada sobem numa porta separada, em loopback.
  */
 export async function iniciarApi(env: VariaveisAmbiente = process.env): Promise<FastifyInstance> {
   // Nenhum segredo é aberto num processo que aceitaria qualquer certificado.
@@ -82,7 +83,12 @@ export async function iniciarApi(env: VariaveisAmbiente = process.env): Promise<
   const integracoes = await criarLeiturasDoAmbiente(resolvido);
   const app = criarAppDoAmbiente(resolvido, ambiente, integracoes);
   if (ambiente.portaMetricas !== null) {
-    const metricas = await servirMetricas(ambiente.metricas, { porta: ambiente.portaMetricas });
+    // Porta interna (loopback): métricas e a prontidão detalhada que a pública não expõe.
+    const prontidao = prontidaoDetalhadaDe(app);
+    const metricas = await servirMetricas(ambiente.metricas, {
+      porta: ambiente.portaMetricas,
+      ...(prontidao === undefined ? {} : { prontidao }),
+    });
     app.addHook('onClose', async () => {
       await new Promise((resolver) => metricas.close(resolver));
     });

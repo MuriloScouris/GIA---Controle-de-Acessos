@@ -35,6 +35,8 @@ beforeAll(async () => {
     GIA_AMBIENTE: 'teste',
     GIA_DATABASE_URL_ARQUIVO: banco,
     GIA_PREFLIGHT_API_URL: 'http://127.0.0.1:3099',
+    // Porta interna de métricas da API: a única que dá o detalhe da prontidão (M7).
+    GIA_PREFLIGHT_API_INTERNA_URL: 'http://127.0.0.1:9199',
     GIA_WORKER_ARQUIVO_SAUDE: batimento,
     GIA_M365_MODO: 'real',
     GIA_M365_TENANT_ID: ID,
@@ -137,13 +139,15 @@ function http() {
         },
       );
     if (u.pathname === '/saude/pronta')
-      return Response.json({
-        status: 'pronta',
-        ambiente: 'teste',
-        versao: SEGREDO,
-        verificacoes: { persistencia: 'ok' },
-        escrita: { modo: 'simulado', liberadas: [] },
-      });
+      return u.port === '9199'
+        ? Response.json({
+            status: 'pronta',
+            ambiente: 'teste',
+            versao: SEGREDO,
+            verificacoes: { persistencia: 'ok' },
+            escrita: { modo: 'simulado', liberadas: [] },
+          })
+        : Response.json({ status: 'pronta' });
     if (u.pathname === '/pedidos') return new Response(SEGREDO, { status: 401 });
     throw new Error('endpoint inesperado');
   });
@@ -378,7 +382,7 @@ it('readiness com escrita real ou dados públicos bloqueia rollback e não impri
   const r = await executarPreflight(env, {
     rede: redeOk,
     fetch: (u, i) =>
-      String(u).endsWith('/saude/pronta')
+      String(u) === 'http://127.0.0.1:9199/saude/pronta'
         ? Promise.resolve(
             Response.json({
               status: 'pronta',
@@ -398,6 +402,82 @@ it('readiness com escrita real ou dados públicos bloqueia rollback e não impri
   expect(r.producaoPronta).toBe(false);
   expect(r.gatesObservados.api).toBe('ligada');
   expect(JSON.stringify(r)).not.toContain(SEGREDO);
+});
+
+it('porta pública com detalhe operacional é proteção inválida e não confirma a escrita (M7)', async () => {
+  const base = http();
+  const r = await executarPreflight(env, {
+    rede: redeOk,
+    fetch: (u, i) =>
+      String(u) === 'http://127.0.0.1:3099/saude/pronta'
+        ? Promise.resolve(
+            Response.json({
+              status: 'pronta',
+              versao: SEGREDO,
+              escrita: { modo: 'simulado', liberadas: [] },
+            }),
+          )
+        : base(u, i),
+  });
+  expect(r.checks).toContainEqual({
+    nome: 'prontidaoApi',
+    estado: 'bloqueado',
+    codigo: 'API_PROTECAO_INVALIDA',
+  });
+  expect(r.gatesObservados.api).toBe('naoConfirmada');
+  expect(JSON.stringify(r)).not.toContain(SEGREDO);
+});
+
+it('sem a porta interna a escrita da API não é presumida desligada: bloqueia sem chamar', async () => {
+  const enviar = http();
+  const semInterna = { ...env, GIA_PREFLIGHT_API_INTERNA_URL: undefined };
+  const r = await executarPreflight(semInterna, { fetch: enviar, rede: redeOk });
+  expect(r.checks).toContainEqual({
+    nome: 'prontidaoApi',
+    estado: 'bloqueado',
+    codigo: 'API_INTERNA_NAO_CONFIGURADA',
+  });
+  expect(r.gatesObservados.api).toBe('naoConfirmada');
+  expect(enviar.mock.calls.filter(([u]) => String(u).includes(':9199'))).toHaveLength(0);
+});
+
+it('porta interna só em HTTP de loopback, sem credencial nem caminho; o resto não é chamado', async () => {
+  for (const interna of [
+    'https://127.0.0.1:9199',
+    'http://10.0.0.5:9199',
+    'http://api.interno:9199',
+    'http://127.0.0.1:9199/metrics',
+    'http://127.0.0.1:9199/?x=1',
+  ]) {
+    const enviar = http();
+    const r = await executarPreflight(
+      { ...env, GIA_PREFLIGHT_API_INTERNA_URL: interna },
+      { fetch: enviar, rede: redeOk },
+    );
+    expect(r.checks).toContainEqual({
+      nome: 'prontidaoApi',
+      estado: 'bloqueado',
+      codigo: 'CONFIGURACAO_INVALIDA',
+    });
+    const chamadasInternas = enviar.mock.calls.filter(([u]) =>
+      String(u).endsWith(':9199/saude/pronta'),
+    );
+    expect(chamadasInternas).toHaveLength(0);
+  }
+  // Com credencial na URL, a regra de segredo inline recusa antes: nada da API é chamado.
+  const enviar = http();
+  const r = await executarPreflight(
+    { ...env, GIA_PREFLIGHT_API_INTERNA_URL: 'http://usuario:senha@127.0.0.1:9199' },
+    { fetch: enviar, rede: redeOk },
+  );
+  expect(r.checks).toContainEqual(
+    expect.objectContaining({ nome: 'segredosInline', codigo: 'SEGREDO_INLINE_RECUSADO' }),
+  );
+  expect(r.checks).toContainEqual(
+    expect.objectContaining({ nome: 'prontidaoApi', estado: 'naoExecutado' }),
+  );
+  expect(enviar.mock.calls.filter(([u]) => String(u).includes('127.0.0.1'))).toHaveLength(0);
+  expect(JSON.stringify(r)).not.toContain('senha');
 });
 
 it('artefato privado e verificável não sobrescreve evidência nem publica caminho', async () => {
