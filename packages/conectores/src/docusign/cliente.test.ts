@@ -9,6 +9,7 @@ import {
 } from './configuracao.js';
 import { criarClienteDocusignReal, montarConectorDocusign } from './cliente.js';
 import { criarConectorDocusign } from '../adaptadores/docusign.js';
+import { criarFetchComPrazo, dentroDoPrazo } from '../prazo.js';
 import { contexto, contextoRevogacao, paramsDocusign } from '../teste/fabricas.js';
 
 const { privateKey, publicKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
@@ -430,6 +431,42 @@ describe('DocuSign real: contrato HTTP e motor', () => {
       tipo: 'timeout',
     });
     expect(c.chamadas).toHaveLength(0);
+  });
+
+  it('M3: 2xx de criação recebido depois do prazo do motor vira desconhecido, nunca sem efeito', async () => {
+    const c = cenario();
+    // O destino processa o POST e responde 2xx, mas só depois do prazo do motor (300 ms).
+    const atrasado = vi.fn(async (entrada: string | URL | Request, init?: RequestInit) => {
+      const resposta = await c.responder(entrada, init);
+      if (init?.method === 'POST' && new URL(String(entrada)).pathname.endsWith('/users'))
+        await new Promise((resolver) => setTimeout(resolver, 450));
+      return resposta;
+    });
+    const cliente = criarClienteDocusignReal({ ...CONFIG, timeoutMs: 20_000 }, privateKey, {
+      fetch: criarFetchComPrazo(atrasado as unknown as typeof fetch),
+    });
+    const conector = criarConectorDocusign(cliente, { modo: 'real' });
+    const resultado = await dentroDoPrazo(300, () =>
+      conector.provisionar(contexto(paramsDocusign())),
+    );
+    expect(
+      c.chamadas.some((r) => r.init.method === 'POST' && r.url.pathname.endsWith('/users')),
+    ).toBe(true);
+    expect(resultado.efeito).toBe('desconhecido');
+    expect(resultado.efeito).not.toBe('semEfeito');
+    expect(resultado.codigo).toBe('INTEGRACAO_RESPOSTA_APOS_PRAZO');
+  });
+
+  it('M3: a mesma criação com a resposta dentro do prazo é confirmada', async () => {
+    const c = cenario();
+    const cliente = criarClienteDocusignReal({ ...CONFIG, timeoutMs: 20_000 }, privateKey, {
+      fetch: criarFetchComPrazo(c.responder as unknown as typeof fetch),
+    });
+    const conector = criarConectorDocusign(cliente, { modo: 'real' });
+    const resultado = await dentroDoPrazo(5_000, () =>
+      conector.provisionar(contexto(paramsDocusign())),
+    );
+    expect(resultado.efeito).toBe('confirmado');
   });
 
   it('timeout aborta o envio; não dispara escrita após estourar o prazo durante uma leitura', async () => {
