@@ -18,6 +18,15 @@ export function exigirPrazo(): number {
   return restante;
 }
 
+/**
+ * Limite de uma operação: o menor entre o seu timeout próprio e o prazo restante do motor (M4),
+ * em ms inteiros e nunca abaixo de 1 (para as bibliotecas que tratam 0 como "sem timeout").
+ * Prazo já vencido lança `timeout` sem enviar nada; fora de `dentroDoPrazo` vale só o timeout próprio.
+ */
+export function limitarAoPrazo(timeoutMs: number): number {
+  return Math.max(1, Math.ceil(Math.min(timeoutMs, exigirPrazo())));
+}
+
 const METODOS_DE_LEITURA = new Set(['GET', 'HEAD', 'OPTIONS']);
 
 function ehLeitura(entrada: Parameters<typeof fetch>[0], init?: RequestInit): boolean {

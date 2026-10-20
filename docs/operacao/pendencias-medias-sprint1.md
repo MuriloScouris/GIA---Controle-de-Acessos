@@ -15,7 +15,7 @@ Status possíveis: `pendente` → `em correção` → `corrigido (PR #n)` ou
 | M1 | OIDC / autorização | Papel derivado do **nome** do grupo/role. Sem entrada no mapa, um valor igual ao nome de um papel (`administrador`, `revisor`...) vira papel do GIA. Quem cria um grupo ou app role com esse nome no tenant ganha o papel. | `apps/api/src/sessao/oidc.ts:174` (`papeisDoToken`) | Aceitar só o que estiver em `GIA_OIDC_MAPA_PAPEIS` (por object ID do grupo); remover o fallback por nome. | pendente |
 | M2 | Conector AD | O provisionamento do AD não registra `progressoConfirmado` entre etapas. Uma retomada depois de falha parcial (criar → senha → habilitar → grupos) não sabe em que etapa parou. | `packages/conectores/src/adaptadores/ad.ts:145` | Confirmar o progresso por etapa, como os demais conectores, e testar a retomada no meio da sequência. | pendente |
 | M3 | Prazo HTTP | `criarFetchComPrazo` chama `exigirPrazo()` depois da resposta. Uma resposta 2xx que chega no vencimento é descartada como timeout, mas a escrita pode ter ocorrido no destino. | `packages/conectores/src/prazo.ts:29` | Não descartar uma resposta já recebida, ou classificar o resultado como efeito desconhecido para reconciliação, nunca como falha limpa. | corrigido (PR #30) |
-| M4 | Conector AD / LDAP | O timeout das operações LDAP não fica limitado pelo prazo restante do motor: usa o `timeoutOperacaoMs` fixo. | `packages/conectores/src/transportes/ldap.ts:178` | Usar o mínimo entre `timeoutOperacaoMs` e o prazo restante, como o HTTP. | pendente |
+| M4 | Conector AD / LDAP | O timeout das operações LDAP não fica limitado pelo prazo restante do motor: usa o `timeoutOperacaoMs` fixo. | `packages/conectores/src/transportes/ldap.ts:178` | Usar o mínimo entre `timeoutOperacaoMs` e o prazo restante, como o HTTP. | corrigido (DEV-297, PR #PR): ver [M4 — como foi corrigido](#m4--como-foi-corrigido-dev-297) |
 | M5 | Conector DocuSign | Regressão de timeout na composição: o DocuSign recebe `limitar(...)` sobre o padrão de 20 s. Isso pode divergir dos timeouts próprios do cliente do #19. | `packages/conectores/src/composicao.ts:126-129` | Unificar a política de timeout do DocuSign com o cliente do #19 e cobrir com teste. | corrigido (PR #28) |
 | M6 | TLS | `NODE_TLS_REJECT_UNAUTHORIZED=0` só é barrado no preflight. A API e o worker sobem normalmente com a verificação TLS desligada. | `apps/worker/src/preflight/preflight.ts:307` | Recusar a subida da API e do worker em `producao` com essa variável; idealmente, avisar em qualquer ambiente. | corrigido (DEV-299, PR #29; commits `14093f4`, `d4022a8` e `c1c5867`): `exigirTlsVerificado` (`packages/contratos/src/tls.ts`) recusa em `producao` a subida da API, do worker e do `smoke:integracoes`, antes de ler o cofre. Fora de produção, a API e o worker registram o aviso `tls_verificacao_desligada`, e o smoke o traz em `avisos` sem dar `validado`. Testes: `packages/contratos/src/tls.test.ts`, `apps/api/src/producao.test.ts`, `apps/api/src/arranque-integracoes.test.ts` (ordem antes do cofre) e `apps/worker/src/index.test.ts` |
 | M7 | Observabilidade | `/saude/pronta` é pública e expõe detalhes operacionais (versão, modo e liberações de escrita). | `apps/api/src/http/observabilidade.ts:85` | Na porta pública, responder só o status; mover os detalhes para a porta interna de métricas ou exigir autenticação. | corrigido (DEV-300, PR #31; commits `5a5e6dc` e `8cd6c07`): a porta pública responde só `{ status }` (`prontidaoPublicaRespostaSchema`), com ou sem sessão; ambiente, versão, verificações e gates de escrita saem só na porta interna (`GIA_METRICAS_PORTA`, loopback), em `/saude/pronta`. O smoke e o preflight leem o detalhe ali (`GIA_SMOKE_METRICAS_URL`, `GIA_PREFLIGHT_API_INTERNA_URL`). Testes: `apps/api/src/producao.test.ts`, `apps/api/src/smoke.test.ts`, `apps/api/src/arranque-integracoes.test.ts`, `apps/worker/src/preflight/preflight.test.ts` |
@@ -67,4 +67,25 @@ sessões em memória e decisões de produto, estão em
 - **Testes:** `packages/conectores/src/prazo.test.ts` (resposta antes e depois do prazo, por método,
   `Request`, prazo já vencido sem envio, corpo cancelado) e `docusign/cliente.test.ts` (criação com
   2xx tardio vira `desconhecido`; com a resposta no prazo, `confirmado`).
-- **Fora de escopo:** M4 (prazo LDAP) segue pendente.
+- **Fora de escopo:** M4 (prazo LDAP), corrigido depois na DEV-297.
+
+### M4 — como foi corrigido (DEV-297)
+
+- **Causa:** `criarAbridorLdapts` criava o `Client` do ldapts com o `timeoutOperacaoMs` fixo. Uma
+  busca ou escrita iniciada perto do fim do prazo do motor ainda podia esperar o timeout inteiro
+  (até 120 s pela configuração), passando do deadline. A conferência `exigirPrazo()` só barrava
+  o início da operação.
+- **Correção (`packages/conectores/src/prazo.ts` e `transportes/ldap.ts`):** `limitarAoPrazo(ms)`
+  devolve o menor entre o timeout próprio e o prazo restante (inteiro, nunca abaixo de 1) e lança
+  `timeout` (`INTEGRACAO_TIMEOUT`) sem enviar nada se o prazo já venceu. O ldapts lê `timeout` do
+  mesmo objeto de opções a cada requisição, então o transporte o reajusta antes de **cada**
+  operação (bind, busca, inclusão, alteração e renomeação) e o `connectTimeout` também é limitado
+  ao prazo. Fora de `dentroDoPrazo` vale só o `timeoutOperacaoMs`, como antes.
+- **Limite conhecido:** a conexão e o bind são duas fases do ldapts, cada uma limitada ao prazo
+  restante na abertura; o tempo somado das duas pode passar do prazo por, no máximo, um
+  `connectTimeout`. As operações depois do bind não têm essa folga.
+- **Testes:** `packages/conectores/src/transportes/ldap.test.ts` (prazo restante menor, maior,
+  igual e expirado, por operação; expirado antes da sessão e durante a leitura da senha; e um
+  contrato com o ldapts real, num servidor local, que prova que o timeout alterado depois do bind
+  vale) e `packages/conectores/src/prazo.test.ts` (`limitarAoPrazo`).
+- **Fora de escopo:** os demais conectores não mudam; nenhuma escrita externa foi habilitada.

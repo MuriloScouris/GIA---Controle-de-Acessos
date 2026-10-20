@@ -1,7 +1,7 @@
 import { checkServerIdentity, type PeerCertificate } from 'node:tls';
-import { Attribute, Change, Client, ResultCodeError } from 'ldapts';
+import { Attribute, Change, Client, ResultCodeError, type ClientOptions } from 'ldapts';
 import { ErroFornecedor } from '../erros.js';
-import { exigirPrazo } from '../prazo.js';
+import { exigirPrazo, limitarAoPrazo } from '../prazo.js';
 
 /**
  * O pouco de LDAP que o transporte do AD usa. Isolado aqui para que o cliente
@@ -175,18 +175,22 @@ export function criarAbridorLdapts(opcoes: OpcoesConexaoLdap): AbrirSessaoLdap {
     let ultimaFalha: ErroFornecedor | null = null;
     for (const url of opcoes.urls) {
       exigirPrazo();
-      const cliente = new Client({
+      // O ldapts lê `timeout` a cada requisição, no mesmo objeto: cada operação o ajusta ao prazo restante (M4).
+      const opcoesCliente: ClientOptions = {
         url,
-        connectTimeout: opcoes.timeoutConexaoMs,
-        timeout: opcoes.timeoutOperacaoMs,
+        connectTimeout: limitarAoPrazo(opcoes.timeoutConexaoMs),
+        timeout: limitarAoPrazo(opcoes.timeoutOperacaoMs),
         tlsOptions: opcoesTls(opcoes),
         strictDN: true,
-      });
+      };
+      const cliente = new Client(opcoesCliente);
       try {
         const senha = await opcoes.senha();
-        exigirPrazo();
+        opcoesCliente.timeout = limitarAoPrazo(opcoes.timeoutOperacaoMs);
         await cliente.bind(opcoes.bindDn, senha);
-        return sessaoDe(cliente);
+        return sessaoDe(cliente, () => {
+          opcoesCliente.timeout = limitarAoPrazo(opcoes.timeoutOperacaoMs);
+        });
       } catch (erro) {
         await cliente.unbind().catch(() => undefined);
         const traduzido = traduzirErroLdap(erro, 'conexao');
@@ -198,10 +202,11 @@ export function criarAbridorLdapts(opcoes: OpcoesConexaoLdap): AbrirSessaoLdap {
   };
 }
 
-function sessaoDe(cliente: Client): SessaoLdap {
+/** `limitarTimeout` ajusta o timeout do cliente ao prazo restante e lança `timeout` se ele já venceu. */
+function sessaoDe(cliente: Client, limitarTimeout: () => void): SessaoLdap {
   return {
     async buscar(busca) {
-      exigirPrazo();
+      limitarTimeout();
       const { searchEntries } = await cliente.search(busca.base, {
         scope: busca.escopo,
         filter: busca.filtro,
@@ -221,7 +226,7 @@ function sessaoDe(cliente: Client): SessaoLdap {
       });
     },
     async incluir(dn, atributos) {
-      exigirPrazo();
+      limitarTimeout();
       await cliente.add(
         dn,
         Object.entries(atributos).map(
@@ -230,7 +235,7 @@ function sessaoDe(cliente: Client): SessaoLdap {
       );
     },
     async alterar(dn, mudancas) {
-      exigirPrazo();
+      limitarTimeout();
       await cliente.modify(
         dn,
         mudancas.map(
@@ -246,7 +251,7 @@ function sessaoDe(cliente: Client): SessaoLdap {
       );
     },
     async renomear(dn, novoDn) {
-      exigirPrazo();
+      limitarTimeout();
       await cliente.modifyDN(dn, novoDn);
     },
     async encerrar() {
