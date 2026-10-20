@@ -19,7 +19,10 @@ it('conexão TCP sem TLS expira e fecha o socket sem enviar credenciais', async 
   try {
     const endereco = servidor.address();
     if (!endereco || typeof endereco === 'string') throw new Error();
-    const r = await verificarRede({ host: '127.0.0.1', porta: endereco.port }, 100);
+    // O prazo corre desde o início da conexão: com 100 ms, sob carga a conexão TCP local podia
+    // chegar depois dele e o teste via `tcp` esgotado em vez de `ok`. O assunto é o silêncio do
+    // servidor depois do TCP; 1 s dá folga para conectar e ainda termina rápido.
+    const r = await verificarRede({ host: '127.0.0.1', porta: endereco.port }, 1_000);
     expect(r).toContainEqual({ nome: 'tcp', estado: 'ok', codigo: 'OK' });
     expect(r).toContainEqual({ nome: 'tls', estado: 'bloqueado', codigo: 'TEMPO_ESGOTADO' });
     expect(bytes).toBeGreaterThan(0); // apenas handshake TLS; nenhuma autenticação LDAP/HTTP.

@@ -1,8 +1,19 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ErroFornecedor } from './erros.js';
 import { criarFetchComPrazo, dentroDoPrazo, limitarAoPrazo } from './prazo.js';
 
+/** Só vale com o relógio falso do `describe` abaixo: o tempo passa quando o teste manda. */
 const esperar = (ms: number) => new Promise((resolver) => setTimeout(resolver, ms));
+
+/**
+ * Deixa o relógio falso andar `ms` e devolve o desfecho da chamada. O tempo é decidido aqui, não
+ * pelo agendador do sistema: sob carga, uma janela real de 5 a 60 ms deixava de significar "antes"
+ * ou "depois" do prazo.
+ */
+function passando<T>(chamada: Promise<T>, ms: number): Promise<T> {
+  chamada.catch(() => undefined);
+  return vi.advanceTimersByTimeAsync(ms).then(() => chamada);
+}
 
 /** Resposta cujo corpo registra o cancelamento, para provar que nada fica preso. */
 function respostaComCorpo(status = 200) {
@@ -31,10 +42,21 @@ function transporteQueResponde(depoisMs: number, status = 200) {
 }
 
 describe('criarFetchComPrazo: resposta antes e depois do prazo (M3)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('resposta dentro do prazo chega intacta, com o corpo legível', async () => {
     const { enviar } = transporteQueResponde(5);
-    const resposta = await dentroDoPrazo(500, () =>
-      criarFetchComPrazo(enviar)('https://destino.example/usuarios', { method: 'POST' }),
+    const resposta = await passando(
+      dentroDoPrazo(500, () =>
+        criarFetchComPrazo(enviar)('https://destino.example/usuarios', { method: 'POST' }),
+      ),
+      5,
     );
     expect(resposta.status).toBe(200);
     expect(await resposta.json()).toEqual({ ok: true });
@@ -42,9 +64,10 @@ describe('criarFetchComPrazo: resposta antes e depois do prazo (M3)', () => {
 
   it('sem prazo ativo, a resposta nunca é descartada', async () => {
     const { enviar } = transporteQueResponde(5);
-    const resposta = await criarFetchComPrazo(enviar)('https://destino.example/x', {
-      method: 'POST',
-    });
+    const resposta = await passando(
+      criarFetchComPrazo(enviar)('https://destino.example/x', { method: 'POST' }),
+      5,
+    );
     expect(resposta.status).toBe(200);
   });
 
@@ -52,8 +75,11 @@ describe('criarFetchComPrazo: resposta antes e depois do prazo (M3)', () => {
     'escrita (%s) com 2xx recebida depois do prazo vira resposta perdida, não timeout limpo',
     async (method) => {
       const { enviar, ultima } = transporteQueResponde(60, 201);
-      const falha = await dentroDoPrazo(20, () =>
-        criarFetchComPrazo(enviar)('https://destino.example/usuarios', { method }),
+      const falha = await passando(
+        dentroDoPrazo(20, () =>
+          criarFetchComPrazo(enviar)('https://destino.example/usuarios', { method }),
+        ),
+        60,
       ).catch((erro: unknown) => erro);
       expect(falha).toBeInstanceOf(ErroFornecedor);
       expect(falha).toMatchObject({
@@ -67,8 +93,11 @@ describe('criarFetchComPrazo: resposta antes e depois do prazo (M3)', () => {
 
   it('escrita feita por um Request também é tratada como escrita', async () => {
     const { enviar } = transporteQueResponde(60);
-    const falha = await dentroDoPrazo(20, () =>
-      criarFetchComPrazo(enviar)(new Request('https://destino.example/x', { method: 'POST' })),
+    const falha = await passando(
+      dentroDoPrazo(20, () =>
+        criarFetchComPrazo(enviar)(new Request('https://destino.example/x', { method: 'POST' })),
+      ),
+      60,
     ).catch((erro: unknown) => erro);
     expect(falha).toMatchObject({ tipo: 'respostaPerdida' });
   });
@@ -77,11 +106,14 @@ describe('criarFetchComPrazo: resposta antes e depois do prazo (M3)', () => {
     'leitura (%s) recebida depois do prazo continua sendo timeout, com o corpo cancelado',
     async (method) => {
       const { enviar, ultima } = transporteQueResponde(60);
-      const falha = await dentroDoPrazo(20, () =>
-        criarFetchComPrazo(enviar)(
-          'https://destino.example/usuarios',
-          method === undefined ? {} : { method },
+      const falha = await passando(
+        dentroDoPrazo(20, () =>
+          criarFetchComPrazo(enviar)(
+            'https://destino.example/usuarios',
+            method === undefined ? {} : { method },
+          ),
         ),
+        60,
       ).catch((erro: unknown) => erro);
       expect(falha).toMatchObject({ tipo: 'timeout', codigo: 'INTEGRACAO_TIMEOUT' });
       expect(ultima.corpo?.cancelado()).toBe(true);
@@ -90,7 +122,6 @@ describe('criarFetchComPrazo: resposta antes e depois do prazo (M3)', () => {
 
   it('com o prazo já vencido, nada é enviado', async () => {
     const { enviar, chamadas } = transporteQueResponde(0);
-    await esperar(5);
     const falha = await dentroDoPrazo(-1, () =>
       criarFetchComPrazo(enviar)('https://destino.example/x', { method: 'POST' }),
     ).catch((erro: unknown) => erro);

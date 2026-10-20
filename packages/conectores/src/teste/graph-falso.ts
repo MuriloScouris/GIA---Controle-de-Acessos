@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { penduradoAteAbortar } from './pendurado.js';
 
 export interface UsuarioGraphFalso {
   id: string;
@@ -119,9 +120,7 @@ export class GraphFalso {
     const programada = this.programadas.get(rota)?.shift();
     if (programada !== undefined) {
       if (programada === 'pendurar') {
-        return new Promise<Response>((_, rejeitar) =>
-          init?.signal?.addEventListener('abort', () => rejeitar(init.signal!.reason)),
-        );
+        return penduradoAteAbortar(init?.signal);
       }
       if (programada instanceof Error) throw programada;
       return typeof programada === 'function' ? programada() : programada;
