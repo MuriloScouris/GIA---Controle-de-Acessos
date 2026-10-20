@@ -107,6 +107,28 @@ Entra ID:
 5. Validação ponta a ponta no tenant: login, papel por grupo mapeado,
    acesso negado (inclusive com grupo ou app role não mapeado) e logout.
 
+## Testes ponta a ponta (provedor falso)
+
+`tests/browser/login-oidc.pw.ts` (Playwright, roda no `pnpm test:e2e` e no CI)
+cobre o login de produção no navegador contra um provedor OIDC falso local
+(`tests/browser/provedor-oidc-falso.ts`). Ele imita `authorize`, `token`, JWKS
+e `logout` do Entra ID em `http://127.0.0.1`, com chaves RSA e client secret
+gerados a cada execução. Nenhuma requisição sai de `127.0.0.1`.
+
+- **Login permitido:** grupo mapeado por object ID → painel, sessão com o papel
+  do mapa, troca do código com PKCE e client secret, ID token validado pelo JWKS.
+- **Acesso negado:** grupo não mapeado, ou app role com nome de papel →
+  `/login?erro=ACESSO_NEGADO`, sem sessão.
+- **Logout:** a sessão local cai. A interface não segue para um logout fora de
+  `login.microsoftonline.com`.
+- **Claims inválidos:** nonce de outro login, audiência, emissor, tenant,
+  expirado ou assinado por outra chave → `LOGIN_TOKEN_INVALIDO`, sem sessão.
+  Também cobre o retorno sem o cookie de estado do navegador.
+
+A API aceita o provedor falso só por injeção programática
+(`criarClienteOidc(config, { autoridade })`), e apenas em `http://` de
+loopback. A configuração por ambiente usa sempre o Entra ID.
+
 ## Limitações conhecidas
 
 - **Sessões em memória do processo:** não sobrevivem a reinício nem são
