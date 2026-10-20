@@ -1,7 +1,12 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
-import { ErroConfiguracao, type VariaveisAmbiente } from '@gia/contratos';
-import { PAPEIS, type Papel, type SessaoAutenticada } from '@gia/dominio';
+import {
+  ErroConfiguracao,
+  PAPEIS_HUMANOS,
+  type PapelHumano,
+  type VariaveisAmbiente,
+} from '@gia/contratos';
+import type { SessaoAutenticada } from '@gia/dominio';
 import {
   createRemoteJWKSet,
   errors as errosJose,
@@ -37,10 +42,11 @@ export interface ConfiguracaoOidc {
   readonly redirectUri: string;
   readonly posLogoutUri: string | null;
   /**
-   * App role ou objectId de grupo → papel do Gia. App roles com o mesmo nome
-   * de um papel (`revisor`, `executor`...) valem sem estar no mapa.
+   * Object ID de grupo de segurança (GUID, em minúsculas) → papéis humanos do
+   * Gia. É a ÚNICA fonte de papel (pendência M1): nome de grupo, valor de app
+   * role ou qualquer texto igual ao nome de um papel nunca concede nada.
    */
-  readonly mapaPapeis: Readonly<Record<string, Papel>>;
+  readonly mapaPapeis: Readonly<Record<string, readonly PapelHumano[]>>;
 }
 
 function urlHttps(valor: string): boolean {
@@ -72,19 +78,22 @@ export function carregarConfiguracaoOidc(env: VariaveisAmbiente): ConfiguracaoOi
   if (!urlHttps(redirectUri)) erros.add(V.redirectUri);
   const posLogout = texto(V.posLogoutUri);
   if (posLogout !== '' && !urlHttps(posLogout)) erros.add(V.posLogoutUri);
-  const mapaPapeis: Record<string, Papel> = {};
+  // Só `objectIdDoGrupo=papel`: chave GUID e papel humano (nunca servicoExecutor).
+  // O mesmo grupo pode aparecer de novo para acumular papéis.
+  const mapaPapeis: Record<string, PapelHumano[]> = {};
   for (const par of texto(V.mapaPapeis) === '' ? [] : texto(V.mapaPapeis).split(',')) {
     const [chave, papel, ...resto] = par.split('=').map((p) => p.trim());
     if (
       resto.length > 0 ||
       chave === undefined ||
-      !/^[\w.-]{1,120}$/.test(chave) ||
-      !(PAPEIS as readonly string[]).includes(papel ?? '')
+      !GUID.test(chave) ||
+      !(PAPEIS_HUMANOS as readonly string[]).includes(papel ?? '')
     ) {
       erros.add(V.mapaPapeis);
       continue;
     }
-    mapaPapeis[chave.toLowerCase()] = papel as Papel;
+    const papeis = (mapaPapeis[chave.toLowerCase()] ??= []);
+    if (!papeis.includes(papel as PapelHumano)) papeis.push(papel as PapelHumano);
   }
   if (erros.size > 0) throw new ErroConfiguracao([...erros].sort());
   return Object.freeze({
@@ -93,7 +102,11 @@ export function carregarConfiguracaoOidc(env: VariaveisAmbiente): ConfiguracaoOi
     arquivoSegredo,
     redirectUri,
     posLogoutUri: posLogout === '' ? null : posLogout,
-    mapaPapeis: Object.freeze(mapaPapeis),
+    mapaPapeis: Object.freeze(
+      Object.fromEntries(
+        Object.entries(mapaPapeis).map(([grupo, papeis]) => [grupo, Object.freeze(papeis)]),
+      ),
+    ),
   });
 }
 
@@ -161,17 +174,24 @@ export function retornoLocal(valor: unknown): string {
   }
 }
 
-/** Papéis do Gia a partir das app roles e dos grupos do token (sem duplicar). */
-export function papeisDoToken(payload: JWTPayload, mapa: Readonly<Record<string, Papel>>): Papel[] {
-  const valores = [
-    ...(Array.isArray(payload['roles']) ? payload['roles'] : []),
-    ...(Array.isArray(payload['groups']) ? payload['groups'] : []),
-  ].filter((v): v is string => typeof v === 'string');
-  const papeis = new Set<Papel>();
-  for (const valor of valores) {
-    const mapeado = mapa[valor.toLowerCase()];
-    if (mapeado !== undefined) papeis.add(mapeado);
-    else if ((PAPEIS as readonly string[]).includes(valor)) papeis.add(valor as Papel);
+/**
+ * Papéis do Gia a partir dos object IDs da claim `groups` mapeados em
+ * `GIA_OIDC_MAPA_PAPEIS` (sem duplicar). A claim `roles` (valores de app role)
+ * e qualquer texto igual ao nome de um papel são ignorados: grupo ou app role
+ * não mapeado nunca eleva privilégio.
+ */
+export function papeisDoToken(
+  payload: JWTPayload,
+  mapa: Readonly<Record<string, readonly PapelHumano[]>>,
+): PapelHumano[] {
+  const grupos = Array.isArray(payload['groups']) ? payload['groups'] : [];
+  const papeis = new Set<PapelHumano>();
+  for (const grupo of grupos) {
+    if (typeof grupo !== 'string' || !GUID.test(grupo)) continue;
+    // `hasOwn`: chaves herdadas do protótipo (`__proto__`, `constructor`) nunca valem.
+    const chave = grupo.toLowerCase();
+    if (!Object.hasOwn(mapa, chave)) continue;
+    for (const papel of mapa[chave]!) papeis.add(papel);
   }
   return [...papeis].sort();
 }

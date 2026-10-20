@@ -181,7 +181,7 @@ export const requisitos: readonly Requisito[] = [
         consentimentos: 'Aprovar escopos e consentimentos do aplicativo OIDC no tenant real.',
         contaServico: 'Confirmar titularidade do aplicativo confidencial e ACL do segredo.',
         papeis:
-          'Homologar roles/grupos reais, usuario sem papel negado e limites por papel sem sessao simulada.',
+          'Homologar grupos reais mapeados por object ID em GIA_OIDC_MAPA_PAPEIS, usuario sem papel e grupo/app role nao mapeado negados, e limites por papel sem sessao simulada.',
         ensaio:
           'Ensaiar login, callback, erros, acesso negado, logout e auditoria em tenant real com autorizacao.',
         rollback:

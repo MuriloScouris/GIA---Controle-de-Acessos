@@ -24,8 +24,9 @@ no teste). **Não foi validado contra um tenant real** — veja
    - `iss` exato `https://login.microsoftonline.com/<tenant>/v2.0`, `aud` =
      client ID, `tid` = tenant, `exp`/`iat` (tolerância de 2 min);
    - `nonce` igual ao do login (anti-replay) e `oid` presente.
-3. Papéis do Gia a partir das **app roles** e/ou **grupos** do token. Sem
-   nenhum papel → `ACESSO_NEGADO`, **nenhuma sessão é criada**.
+3. Papéis do Gia **só** a partir dos object IDs da claim `groups` mapeados
+   em `GIA_OIDC_MAPA_PAPEIS`. A claim `roles` e nomes de grupo são ignorados.
+   Sem nenhum papel → `ACESSO_NEGADO`, **nenhuma sessão é criada**.
 4. Sessão nova (o identificador anterior do navegador é descartado — sem
    fixação), cookie `gia_sessao` `HttpOnly; Secure; SameSite=Strict`, expiração
    absoluta de 8 h, e 303 para o retorno **local** (caminho começando com `/`;
@@ -47,18 +48,28 @@ A sessão carrega `usuarioId` (o `oid` do Entra ID), nome e papéis; a matriz de
 permissões do domínio decide cada ação (403 `PERMISSAO_NEGADA` para o que o
 papel não pode). O ator vem sempre da sessão do servidor (regra 13).
 
-Duas formas de dar papel, que podem ser combinadas:
+O papel vem **somente** de grupos de segurança mapeados por **object ID**
+(pendência M1):
 
-- **App roles** (recomendado): criar no app registration as roles com os
-  **valores** `solicitante`, `revisor`, `executor`, `auditor`,
-  `administradorTecnico`, `administradorGia` e atribuí-las às pessoas. Valem
-  sem configuração extra. Atribuir **grupos** a app roles exige Entra ID P1;
-  sem P1, atribuir por pessoa.
-- **Grupos de segurança**: habilitar `groups` no token (Token configuration →
-  Groups claim → Security groups) e mapear o objectId de cada grupo em
-  `GIA_OIDC_MAPA_PAPEIS`. Com mais de 200 grupos o Entra ID não lista os
-  grupos no token (*overage*); o GIA então **nega** o acesso em vez de adivinhar
-  — use app roles ou grupos atribuídos ao app.
+- Habilitar `groups` no token (Token configuration → Groups claim → Security
+  groups) e mapear o object ID de cada grupo em `GIA_OIDC_MAPA_PAPEIS`, no
+  formato `objectIdDoGrupo=papel`. O mesmo grupo pode aparecer mais de uma vez
+  para acumular papéis.
+- Papéis aceitos no mapa: `solicitante`, `revisor`, `executor`, `auditor`,
+  `administradorTecnico` e `administradorGia`. `servicoExecutor` é a
+  identidade técnica do worker e nunca vem de login.
+- **Nada mais concede papel:** valores de app role (claim `roles`), nomes de
+  grupo e qualquer texto igual ao nome de um papel são ignorados. Grupo que não
+  está no mapa não dá papel, e sem mapa ninguém entra. Quem cria no tenant um
+  grupo ou app role chamado `administradorGia` não ganha nada.
+- Chave que não seja GUID ou papel desconhecido no mapa impede a API de subir
+  (`Configuração inválida: GIA_OIDC_MAPA_PAPEIS`; o valor nunca é impresso).
+  Uma configuração antiga com nome de app role (`Valor.Da.Role=auditor`)
+  precisa ser trocada pelo object ID do grupo correspondente.
+- Com mais de 200 grupos, o Entra ID não lista os grupos no token
+  (*overage*), e o GIA então **nega** o acesso em vez de adivinhar. Para
+  evitar, emita no token só os grupos atribuídos ao app (Groups claim →
+  "Groups assigned to the application").
 
 ## Configuração
 
@@ -69,7 +80,7 @@ Duas formas de dar papel, que podem ser combinadas:
 | `GIA_OIDC_CLIENT_SECRET_ARQUIVO` | sim         | arquivo do cofre com o VALOR do client secret                      |
 | `GIA_OIDC_REDIRECT_URI`          | sim         | URL HTTPS registrada no app que chega a `/sessao/oidc/retorno` (ex.: `https://gia.empresa/api/sessao/oidc/retorno`) |
 | `GIA_OIDC_POS_LOGOUT_URI`        | não         | URL HTTPS para onde o Entra ID volta depois do logout              |
-| `GIA_OIDC_MAPA_PAPEIS`           | não         | `objectIdDoGrupo=revisor,Valor.Da.Role=auditor,...`                 |
+| `GIA_OIDC_MAPA_PAPEIS`           | na prática  | `objectIdDoGrupo=revisor,outroObjectId=auditor,...`; só GUIDs; sem ele ninguém tem papel |
 | `GIA_AUTH_SIMULADA`              | não         | `true` liga a sessão simulada em `teste` (testes automatizados); recusado em `producao` |
 
 Regras no arranque (o erro cita só nomes de variáveis):
@@ -87,10 +98,11 @@ Entra ID:
    produção, `ID tokens` habilitados e escopos `openid profile email`.
 2. **Client secret** no cofre, montado como arquivo (expira em 6–24 meses;
    certificado é o passo seguinte natural).
-3. **App roles** criadas e atribuídas (ou o mapa de grupos).
+3. **Grupos de segurança** por papel, com a claim `groups` no token e os
+   object IDs no `GIA_OIDC_MAPA_PAPEIS`.
 4. Opcional: **Front-channel logout URL** e o post-logout redirect.
-5. Validação ponta a ponta no tenant: login, papel por role/grupo, acesso
-   negado, logout.
+5. Validação ponta a ponta no tenant: login, papel por grupo mapeado,
+   acesso negado (inclusive com grupo ou app role não mapeado) e logout.
 
 ## Limitações conhecidas
 
