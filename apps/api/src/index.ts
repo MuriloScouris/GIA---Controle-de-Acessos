@@ -108,3 +108,5 @@ if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.a
 }
 
 export { criarApp };
+// Para testes ponta a ponta com provedor OIDC falso (ver `DependenciasOidc.autoridade`).
+export { criarClienteOidc, type ConfiguracaoOidc } from './sessao/oidc.js';

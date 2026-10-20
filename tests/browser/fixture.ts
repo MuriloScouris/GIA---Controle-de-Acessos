@@ -26,81 +26,12 @@ export const test = base.extend<{ ambiente: Ambiente }>({
     const banco = await criarBancoDeTeste();
     const gia = subirGia(banco);
     let catalogo: CatalogoSimulado | undefined;
-    const dist = fileURLToPath(new URL('../../apps/web/dist/', import.meta.url));
-    const raiz = resolve(dist);
     const apiUrl = await gia.app.listen({ host: '127.0.0.1', port: 0 });
-    const web = createServer((req, res) => {
-      void (async () => {
-        const url = new URL(req.url ?? '/', 'http://localhost');
-        if (url.pathname.startsWith('/api/')) {
-          const partes: Buffer[] = [];
-          for await (const parte of req) partes.push(Buffer.from(parte));
-          const resposta = await fetch(`${apiUrl}${url.pathname.slice(4)}${url.search}`, {
-            method: req.method ?? 'GET',
-            redirect: 'manual',
-            headers: {
-              ...(req.headers.cookie ? { cookie: req.headers.cookie } : {}),
-              ...(req.headers['content-type']
-                ? { 'content-type': req.headers['content-type'] }
-                : {}),
-              ...(req.headers['x-gia-csrf']
-                ? { 'x-gia-csrf': String(req.headers['x-gia-csrf']) }
-                : {}),
-            },
-            ...(partes.length ? { body: Buffer.concat(partes) } : {}),
-          });
-          const headers = Object.fromEntries(resposta.headers);
-          // fetch descomprime o body; esses cabeçalhos não podem ser reutilizados.
-          delete headers['content-length'];
-          delete headers['content-encoding'];
-          res.writeHead(resposta.status, headers);
-          res.end(Buffer.from(await resposta.arrayBuffer()));
-          return;
-        }
-        if (req.method !== 'GET' && req.method !== 'HEAD') {
-          res.writeHead(405);
-          res.end();
-          return;
-        }
-        const caminho = resolve(raiz, `.${decodeURIComponent(url.pathname)}`);
-        if (caminho !== raiz && !caminho.startsWith(raiz + sep)) {
-          res.writeHead(404);
-          res.end();
-          return;
-        }
-        const extensao = extname(caminho);
-        const arquivo = extensao ? caminho : resolve(raiz, 'index.html');
-        const mime: Record<string, string> = {
-          '.html': 'text/html',
-          '.js': 'text/javascript',
-          '.css': 'text/css',
-          '.woff2': 'font/woff2',
-          '.svg': 'image/svg+xml',
-        };
-        try {
-          const conteudo = await readFile(arquivo);
-          res.writeHead(200, {
-            'content-type': mime[extname(arquivo)] ?? 'application/octet-stream',
-          });
-          res.end(conteudo);
-        } catch {
-          res.writeHead(404);
-          res.end();
-        }
-      })().catch(() => {
-        if (!res.headersSent) res.writeHead(500);
-        res.end();
-      });
-    });
+    const web = await servirWeb(() => apiUrl);
     try {
-      web.listen(0, '127.0.0.1');
-      await once(web, 'listening');
-      const endereco = web.address();
-      if (typeof endereco !== 'object' || endereco === null)
-        throw new Error('Servidor de teste sem porta');
       await use({
         gia,
-        url: `http://127.0.0.1:${endereco.port}`,
+        url: web.url,
         async executarWorker(preparar) {
           if (catalogo === undefined) {
             const itens = await gia.persistencia.executar(async (tx) =>
@@ -115,13 +46,99 @@ export const test = base.extend<{ ambiente: Ambiente }>({
         },
       });
     } finally {
-      web.closeAllConnections();
-      await new Promise<void>((r) => web.close(() => r()));
+      await web.fechar();
       await gia.fechar();
       await banco.descartar();
     }
   },
 });
+
+/**
+ * Somente testes: serve a SPA compilada (`apps/web/dist`) e repassa `/api/*` à
+ * API em `apiUrl()`, como o proxy de produção. `set-cookie` vai um por um
+ * (`getSetCookie`), porque o retorno do OIDC define dois cookies de uma vez.
+ */
+export async function servirWeb(
+  apiUrl: () => string,
+): Promise<{ readonly url: string; fechar(): Promise<void> }> {
+  const dist = fileURLToPath(new URL('../../apps/web/dist/', import.meta.url));
+  const raiz = resolve(dist);
+  const web = createServer((req, res) => {
+    void (async () => {
+      const url = new URL(req.url ?? '/', 'http://localhost');
+      if (url.pathname.startsWith('/api/')) {
+        const partes: Buffer[] = [];
+        for await (const parte of req) partes.push(Buffer.from(parte));
+        const resposta = await fetch(`${apiUrl()}${url.pathname.slice(4)}${url.search}`, {
+          method: req.method ?? 'GET',
+          redirect: 'manual',
+          headers: {
+            ...(req.headers.cookie ? { cookie: req.headers.cookie } : {}),
+            ...(req.headers['content-type'] ? { 'content-type': req.headers['content-type'] } : {}),
+            ...(req.headers['x-gia-csrf']
+              ? { 'x-gia-csrf': String(req.headers['x-gia-csrf']) }
+              : {}),
+          },
+          ...(partes.length ? { body: Buffer.concat(partes) } : {}),
+        });
+        const headers: Record<string, string | string[]> = Object.fromEntries(resposta.headers);
+        // fetch descomprime o body; esses cabeçalhos não podem ser reutilizados.
+        delete headers['content-length'];
+        delete headers['content-encoding'];
+        const cookies = resposta.headers.getSetCookie();
+        if (cookies.length > 0) headers['set-cookie'] = cookies;
+        res.writeHead(resposta.status, headers);
+        res.end(Buffer.from(await resposta.arrayBuffer()));
+        return;
+      }
+      if (req.method !== 'GET' && req.method !== 'HEAD') {
+        res.writeHead(405);
+        res.end();
+        return;
+      }
+      const caminho = resolve(raiz, `.${decodeURIComponent(url.pathname)}`);
+      if (caminho !== raiz && !caminho.startsWith(raiz + sep)) {
+        res.writeHead(404);
+        res.end();
+        return;
+      }
+      const extensao = extname(caminho);
+      const arquivo = extensao ? caminho : resolve(raiz, 'index.html');
+      const mime: Record<string, string> = {
+        '.html': 'text/html',
+        '.js': 'text/javascript',
+        '.css': 'text/css',
+        '.woff2': 'font/woff2',
+        '.svg': 'image/svg+xml',
+      };
+      try {
+        const conteudo = await readFile(arquivo);
+        res.writeHead(200, {
+          'content-type': mime[extname(arquivo)] ?? 'application/octet-stream',
+        });
+        res.end(conteudo);
+      } catch {
+        res.writeHead(404);
+        res.end();
+      }
+    })().catch(() => {
+      if (!res.headersSent) res.writeHead(500);
+      res.end();
+    });
+  });
+  web.listen(0, '127.0.0.1');
+  await once(web, 'listening');
+  const endereco = web.address();
+  if (typeof endereco !== 'object' || endereco === null)
+    throw new Error('Servidor de teste sem porta');
+  return {
+    url: `http://127.0.0.1:${endereco.port}`,
+    async fechar() {
+      web.closeAllConnections();
+      await new Promise<void>((r) => web.close(() => r()));
+    },
+  };
+}
 
 export { expect };
 export async function entrar(page: Page, url: string, nome = 'Administrador do GIA') {

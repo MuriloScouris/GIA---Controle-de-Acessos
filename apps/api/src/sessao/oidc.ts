@@ -141,6 +141,35 @@ export interface DependenciasOidc {
   /** Leitura do segredo; padrão: arquivo do cofre. */
   readonly lerSegredo?: () => Promise<string>;
   readonly agora?: () => Date;
+  /**
+   * Raiz do provedor; padrão: o Entra ID (`https://login.microsoftonline.com`).
+   * Só para testes ponta a ponta com provedor falso local: aceita apenas
+   * `http://` de loopback e nunca vem do ambiente, então produção não a altera.
+   */
+  readonly autoridade?: string;
+}
+
+/** Autoridade do Entra ID, ou um provedor falso em loopback (somente testes). */
+function autoridadeDe(valor: string | undefined): string {
+  if (valor === undefined || valor === AUTORIDADE) return AUTORIDADE;
+  let url: URL;
+  try {
+    url = new URL(valor);
+  } catch {
+    throw new Error('Autoridade OIDC inválida.');
+  }
+  if (
+    url.protocol !== 'http:' ||
+    !['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname) ||
+    url.username !== '' ||
+    url.password !== '' ||
+    url.pathname !== '/' ||
+    url.search !== '' ||
+    url.hash !== ''
+  ) {
+    throw new Error('Autoridade OIDC fora do Entra ID só em loopback de teste.');
+  }
+  return url.origin;
 }
 
 export interface ClienteOidc {
@@ -212,7 +241,7 @@ export function criarClienteOidc(
         throw new ErroConfiguracao([VARIAVEIS_OIDC.arquivoSegredo]);
       }
     });
-  const raiz = `${AUTORIDADE}/${config.tenantId}`;
+  const raiz = `${autoridadeDe(dependencias.autoridade)}/${config.tenantId}`;
   const emissor = `${raiz}/v2.0`;
   const chaves =
     dependencias.chaves ??
