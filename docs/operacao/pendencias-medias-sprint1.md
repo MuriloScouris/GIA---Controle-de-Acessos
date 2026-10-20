@@ -20,7 +20,7 @@ Status possíveis: `pendente` → `em correção` → `corrigido (PR #n)` ou
 | M6 | TLS | `NODE_TLS_REJECT_UNAUTHORIZED=0` só é barrado no preflight. A API e o worker sobem normalmente com a verificação TLS desligada. | `apps/worker/src/preflight/preflight.ts:307` | Recusar a subida da API e do worker em `producao` com essa variável; idealmente, avisar em qualquer ambiente. | corrigido (DEV-299, PR #29; commits `14093f4`, `d4022a8` e `c1c5867`): `exigirTlsVerificado` (`packages/contratos/src/tls.ts`) recusa em `producao` a subida da API, do worker e do `smoke:integracoes`, antes de ler o cofre. Fora de produção, a API e o worker registram o aviso `tls_verificacao_desligada`, e o smoke o traz em `avisos` sem dar `validado`. Testes: `packages/contratos/src/tls.test.ts`, `apps/api/src/producao.test.ts`, `apps/api/src/arranque-integracoes.test.ts` (ordem antes do cofre) e `apps/worker/src/index.test.ts` |
 | M7 | Observabilidade | `/saude/pronta` é pública e expõe detalhes operacionais (versão, modo e liberações de escrita). | `apps/api/src/http/observabilidade.ts:85` | Na porta pública, responder só o status; mover os detalhes para a porta interna de métricas ou exigir autenticação. | corrigido (DEV-300, PR #31; commits `5a5e6dc` e `8cd6c07`): a porta pública responde só `{ status }` (`prontidaoPublicaRespostaSchema`), com ou sem sessão; ambiente, versão, verificações e gates de escrita saem só na porta interna (`GIA_METRICAS_PORTA`, loopback), em `/saude/pronta`. O smoke e o preflight leem o detalhe ali (`GIA_SMOKE_METRICAS_URL`, `GIA_PREFLIGHT_API_INTERNA_URL`). Testes: `apps/api/src/producao.test.ts`, `apps/api/src/smoke.test.ts`, `apps/api/src/arranque-integracoes.test.ts`, `apps/worker/src/preflight/preflight.test.ts` |
 | M8 | OIDC | `/sessao/oidc/entrar` não tem teto de requisições. Cada chamada cria um estado pendente (state/nonce/PKCE) em memória, o que permite abuso e consumo de memória. | `apps/api/src/http/rotas-oidc.ts` | Limitar a taxa por origem e o total de estados pendentes, com expiração curta. | corrigido (DEV-301, PR #34): ver [M8 — como foi corrigido](#m8--como-foi-corrigido-dev-301) |
-| M9 | OIDC / testes | Faltam testes negativos de token: `nonce` trocado, `aud` errado, `iss` errado, `tid` de outro tenant e `exp` vencido. | `apps/api/src/oidc.test.ts` | Um teste por claim inválida, cada um esperando `LOGIN_TOKEN_INVALIDO` e nenhuma sessão aberta. | pendente |
+| M9 | OIDC / testes | Faltam testes negativos de token: `nonce` trocado, `aud` errado, `iss` errado, `tid` de outro tenant e `exp` vencido. | `apps/api/src/oidc.test.ts` | Um teste por claim inválida, cada um esperando `LOGIN_TOKEN_INVALIDO` e nenhuma sessão aberta. | corrigido (DEV-302, PR #PR): ver [M9 — como foi corrigido](#m9--como-foi-corrigido-dev-302) |
 | M10 | E2E | O E2E (Playwright e `tests/e2e`) só roda com a sessão simulada. O caminho OIDC não é exercitado de ponta a ponta. | `tests/e2e/apoio.ts`, `tests/browser/` | Criar um E2E com provedor OIDC falso local (emissor, JWKS e authorize), cobrindo login, acesso negado e logout. | pendente |
 
 ## Como atualizar
@@ -157,3 +157,30 @@ sessões em memória e decisões de produto, estão em
   de `oidc.test.ts` (31 inícios variando o `X-Forwarded-For`: 30 aceitos e 1 recusa com proxy
   restrito, e o `::ffff:0.0.0.0/96` nem sobe).
 - **Fora de escopo:** o mapeamento de papéis (M1) não mudou; nenhuma escrita externa foi habilitada.
+
+### M9 — como foi corrigido (DEV-302)
+
+- **Causa:** o login só tinha testes negativos para parte das claims (nonce, aud, tid e exp), sem
+  `iss`, e sem provar que a sessão não nasce: o teste conferia apenas a ausência do cookie.
+- **Correção (só testes, `apps/api/src/oidc.test.ts`, bloco "claims inválidos do ID token"):** um
+  caso por claim inválida, 27 negativos, todos esperando `303` para `/login?erro=LOGIN_TOKEN_INVALIDO`.
+  - `nonce`: trocado, com outra caixa, vazio, ausente, não texto, e o token legítimo de **outro
+    login** (replay do nonce de um login anterior);
+  - `aud`: outra aplicação, com sufixo no client ID, lista sem o client ID, ausente;
+  - `iss`: outro tenant, v1.0 (`sts.windows.net`), sem `/v2.0`, com barra no fim, sem HTTPS, outro
+    domínio, ausente;
+  - `tid`: outro tenant, vazio, ausente, não texto;
+  - `exp`: vencido há 5 minutos, há 3 minutos (além da tolerância de 2), há um dia e ausente; e,
+    junto, `iat` ausente e `nbf` no futuro.
+- **Nenhuma sessão nasce:** cada caso confere, além do redirect e do corpo vazio, que a única
+  `Set-Cookie` é a do estado, zerada (nenhum `gia_sessao`); que um espião em `sessoes.abrir` nunca
+  foi chamado; que não há evento `login_concluido` e o último é `login_recusado` com
+  `LOGIN_TOKEN_INVALIDO`; que `GET /sessao` sem cookie dá 401; e que repetir o retorno com o mesmo
+  estado dá `LOGIN_ESTADO_INVALIDO` (o estado foi gasto). O caso positivo do mesmo bloco abre a
+  sessão (espião chamado uma vez, `/sessao` 200), para os negativos não passarem por um teste vazio.
+- **Defeito real:** nenhum. Todas as recusas já existiam no código; para provar que os testes
+  pegam cada claim, a validação foi enfraquecida de propósito (sem `issuer`, sem `audience`, sem a
+  conferência do nonce, sem a do tid e com tolerância de relógio enorme), e cada mutação derrubou os
+  casos da claim correspondente.
+- **Sem segredos:** as chaves de assinatura são geradas na hora, no teste, e os identificadores
+  (tenant, client ID, grupos) são GUIDs fictícios.
