@@ -26,6 +26,10 @@ const TENANT = '11111111-2222-4333-8444-555555555555';
 const CLIENTE = '66666666-7777-4888-9999-000000000000';
 const OID = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
 const GRUPO_REVISORES = 'cccccccc-1111-4222-8333-444444444444';
+const GRUPO_AUDITORES = 'dddddddd-1111-4222-8333-444444444444';
+const GRUPO_EXECUTORES = 'eeeeeeee-1111-4222-8333-444444444444';
+/** Grupo existente no tenant, mas fora do mapa: nunca dá papel. */
+const GRUPO_NAO_MAPEADO = 'ffffffff-1111-4222-8333-444444444444';
 const SEGREDO = 'segredo-ficticio-do-app';
 const ENV_OIDC = {
   GIA_OIDC_TENANT_ID: TENANT,
@@ -33,7 +37,7 @@ const ENV_OIDC = {
   GIA_OIDC_CLIENT_SECRET_ARQUIVO: '/run/secrets/oidc',
   GIA_OIDC_REDIRECT_URI: 'https://gia.exemplo.com.br/api/sessao/oidc/retorno',
   GIA_OIDC_POS_LOGOUT_URI: 'https://gia.exemplo.com.br/login',
-  GIA_OIDC_MAPA_PAPEIS: `${GRUPO_REVISORES}=revisor,Gia.Auditoria=auditor`,
+  GIA_OIDC_MAPA_PAPEIS: `${GRUPO_REVISORES}=revisor,${GRUPO_AUDITORES}=auditor,${GRUPO_EXECUTORES}=executor`,
 };
 
 let chavePrivada: CryptoKey;
@@ -136,7 +140,11 @@ describe('configuração do OIDC', () => {
     expect(carregarConfiguracaoOidc(ENV_OIDC)).toMatchObject({
       tenantId: TENANT,
       clientId: CLIENTE,
-      mapaPapeis: { [GRUPO_REVISORES]: 'revisor', 'gia.auditoria': 'auditor' },
+      mapaPapeis: {
+        [GRUPO_REVISORES]: ['revisor'],
+        [GRUPO_AUDITORES]: ['auditor'],
+        [GRUPO_EXECUTORES]: ['executor'],
+      },
     });
     const variaveis = (env: Record<string, string>) => {
       try {
@@ -172,21 +180,84 @@ describe('configuração do OIDC', () => {
     }
   });
 
-  it('papéis vêm das app roles com o nome do papel ou do mapa (roles e grupos)', () => {
+  it('mapa só aceita object ID de grupo → papel humano (M1)', () => {
+    const variaveis = (mapa: string) => {
+      try {
+        carregarConfiguracaoOidc({ ...ENV_OIDC, GIA_OIDC_MAPA_PAPEIS: mapa });
+      } catch (erro) {
+        return (erro as ErroConfiguracao).variaveis;
+      }
+      return [];
+    };
+    for (const invalido of [
+      'Gia.Auditoria=auditor', // valor de app role por nome
+      'administradorGia=administradorGia', // nome de papel como chave
+      'Administradores do GIA=administradorGia',
+      `${GRUPO_REVISORES}=servicoExecutor`, // identidade técnica do worker
+      `${GRUPO_REVISORES}=administrador`, // papel inexistente
+      `${GRUPO_REVISORES}=revisor=executor`,
+      `${GRUPO_REVISORES}`,
+      `${GRUPO_REVISORES}=revisor,`,
+      `{${GRUPO_REVISORES}}=revisor`,
+      '__proto__=administradorGia',
+    ])
+      expect(variaveis(invalido), invalido).toEqual(['GIA_OIDC_MAPA_PAPEIS']);
+    // O erro cita só a variável, nunca o valor configurado.
+    try {
+      carregarConfiguracaoOidc({ ...ENV_OIDC, GIA_OIDC_MAPA_PAPEIS: 'Gia.Secreto=auditor' });
+    } catch (erro) {
+      expect((erro as Error).message).not.toContain('Gia.Secreto');
+    }
+    // GUID em maiúsculas é normalizado; o mesmo grupo pode acumular papéis.
+    const config = carregarConfiguracaoOidc({
+      ...ENV_OIDC,
+      GIA_OIDC_MAPA_PAPEIS: `${GRUPO_REVISORES.toUpperCase()}=revisor, ${GRUPO_REVISORES}=executor,${GRUPO_REVISORES}=revisor`,
+    });
+    expect(config.mapaPapeis).toEqual({ [GRUPO_REVISORES]: ['revisor', 'executor'] });
+    // Sem mapa, ninguém tem papel (e o login nega): não há papel implícito.
+    const semMapa = carregarConfiguracaoOidc({ ...ENV_OIDC, GIA_OIDC_MAPA_PAPEIS: '' });
+    expect(semMapa.mapaPapeis).toEqual({});
+  });
+
+  it('papéis vêm só dos object IDs mapeados na claim groups (M1)', () => {
     const mapa = carregarConfiguracaoOidc(ENV_OIDC).mapaPapeis;
+    expect(papeisDoToken({ groups: [GRUPO_REVISORES, GRUPO_EXECUTORES] }, mapa)).toEqual([
+      'executor',
+      'revisor',
+    ]);
+    expect(papeisDoToken({ groups: [GRUPO_AUDITORES.toUpperCase()] }, mapa)).toEqual(['auditor']);
+    for (const payload of [
+      // app roles com o nome exato de um papel: antes concediam, agora não
+      { roles: ['administradorGia', 'administradorTecnico', 'revisor', 'executor', 'auditor'] },
+      // grupo cujo "nome" é um papel (sem object ID)
+      { groups: ['administradorGia', 'revisor'] },
+      // object ID mapeado, mas na claim roles: só groups conta
+      { roles: [GRUPO_REVISORES] },
+      // grupo real do tenant, fora do mapa
+      { groups: [GRUPO_NAO_MAPEADO] },
+      // identidade técnica nunca vem do token
+      { roles: ['servicoExecutor'], groups: ['servicoExecutor'] },
+      // chaves do protótipo e formatos estranhos
+      { groups: ['__proto__', 'constructor', 'toString'] },
+      { groups: [42, null, { id: GRUPO_REVISORES }, [GRUPO_REVISORES]] },
+      { groups: GRUPO_REVISORES },
+      { groups: [` ${GRUPO_REVISORES}`] },
+      {},
+    ])
+      expect(papeisDoToken(payload as never, mapa), JSON.stringify(payload)).toEqual([]);
+    // Mistura: só o grupo mapeado vale; o resto é ignorado, sem elevar.
     expect(
       papeisDoToken(
-        { roles: ['executor', 'Gia.Auditoria', 'root'], groups: [GRUPO_REVISORES] },
+        { roles: ['administradorGia'], groups: [GRUPO_AUDITORES, GRUPO_NAO_MAPEADO, 'revisor'] },
         mapa,
       ),
-    ).toEqual(['auditor', 'executor', 'revisor']);
-    expect(papeisDoToken({ roles: ['Administrador'] }, mapa)).toEqual([]);
+    ).toEqual(['auditor']);
   });
 });
 
 describe('login de produção com Entra ID (Authorization Code + PKCE)', () => {
   it('entrar redireciona ao Entra ID do tenant com PKCE S256, state e nonce, e liga o estado ao navegador', async () => {
-    const { app } = montar((nonce) => idToken({ nonce, roles: ['revisor'] }));
+    const { app } = montar((nonce) => idToken({ nonce, groups: [GRUPO_REVISORES] }));
     const { res, local, linhaEstado } = await entrar(app);
     expect(res.statusCode).toBe(302);
     expect(`${local.origin}${local.pathname}`).toBe(
@@ -208,7 +279,6 @@ describe('login de produção com Entra ID (Authorization Code + PKCE)', () => {
     const { app, pedidosDeToken, eventos } = montar((nonce) =>
       idToken({
         nonce,
-        roles: ['revisor'],
         groups: [GRUPO_REVISORES],
         email: 'pessoa@exemplo.com.br',
       }),
@@ -245,7 +315,7 @@ describe('login de produção com Entra ID (Authorization Code + PKCE)', () => {
   });
 
   it('sem o cookie de estado do mesmo navegador (CSRF de login) ou repetindo o retorno, recusa', async () => {
-    const { app } = montar((nonce) => idToken({ nonce, roles: ['revisor'] }));
+    const { app } = montar((nonce) => idToken({ nonce, groups: [GRUPO_REVISORES] }));
     const { estado } = await entrar(app);
     for (const [query, doCookie] of [
       [`code=x&state=${estado}`, null],
@@ -263,19 +333,29 @@ describe('login de produção com Entra ID (Authorization Code + PKCE)', () => {
   });
 
   it.each([
-    ['nonce de outro login', (n: string) => idToken({ nonce: `${n}x`, roles: ['revisor'] })],
-    ['outra audiência', (n: string) => idToken({ nonce: n, roles: ['revisor'], aud: 'outro' })],
+    ['nonce de outro login', (n: string) => idToken({ nonce: `${n}x`, groups: [GRUPO_REVISORES] })],
+    [
+      'outra audiência',
+      (n: string) => idToken({ nonce: n, groups: [GRUPO_REVISORES], aud: 'outro' }),
+    ],
     [
       'outro tenant',
       (n: string) =>
-        idToken({ nonce: n, roles: ['revisor'], tid: '99999999-2222-4333-8444-555555555555' }),
+        idToken({
+          nonce: n,
+          groups: [GRUPO_REVISORES],
+          tid: '99999999-2222-4333-8444-555555555555',
+        }),
     ],
-    ['expirado', (n: string) => idToken({ nonce: n, roles: ['revisor'] }, { expira: '-5m' })],
+    [
+      'expirado',
+      (n: string) => idToken({ nonce: n, groups: [GRUPO_REVISORES] }, { expira: '-5m' }),
+    ],
     [
       'assinado por outra chave',
-      (n: string) => idToken({ nonce: n, roles: ['revisor'] }, { chave: outraChave }),
+      (n: string) => idToken({ nonce: n, groups: [GRUPO_REVISORES] }, { chave: outraChave }),
     ],
-    ['sem oid', (n: string) => idToken({ nonce: n, roles: ['revisor'], oid: undefined })],
+    ['sem oid', (n: string) => idToken({ nonce: n, groups: [GRUPO_REVISORES], oid: undefined })],
   ])('token inválido (%s) não abre sessão', async (_caso, gerar) => {
     const { app, eventos } = montar(gerar);
     const { estado } = await entrar(app);
@@ -288,7 +368,7 @@ describe('login de produção com Entra ID (Authorization Code + PKCE)', () => {
   it('token com algoritmo simétrico (troca de alg) não abre sessão', async () => {
     const segredo = new TextEncoder().encode('chave-simetrica-de-teste-com-32-bytes!!');
     const { app } = montar((nonce) =>
-      new SignJWT({ tid: TENANT, oid: OID, nonce, roles: ['revisor'] })
+      new SignJWT({ tid: TENANT, oid: OID, nonce, groups: [GRUPO_REVISORES] })
         .setProtectedHeader({ alg: 'HS256' })
         .setIssuer(`https://login.microsoftonline.com/${TENANT}/v2.0`)
         .setAudience(CLIENTE)
@@ -303,7 +383,15 @@ describe('login de produção com Entra ID (Authorization Code + PKCE)', () => {
   });
 
   it('pessoa sem papel do Gia: acesso negado, sem sessão; grupos demais (overage) também', async () => {
-    for (const claims of [{ roles: ['Outra.Coisa'] }, { _claim_names: { groups: 'src1' } }]) {
+    for (const claims of [
+      { roles: ['Outra.Coisa'] },
+      { _claim_names: { groups: 'src1' } },
+      // M1: app role ou grupo com o nome de um papel não abre sessão
+      { roles: ['administradorGia', 'revisor'] },
+      { groups: ['administradorGia'] },
+      { groups: [GRUPO_NAO_MAPEADO] },
+      { roles: [GRUPO_REVISORES] },
+    ]) {
       const { app } = montar((nonce) => idToken({ nonce, ...claims }));
       const { estado } = await entrar(app);
       const res = await retornar(app, `code=x&state=${estado}`, estado);
@@ -313,7 +401,7 @@ describe('login de produção com Entra ID (Authorization Code + PKCE)', () => {
   });
 
   it('erro devolvido pelo Entra ID e troca de código recusada viram códigos estáveis', async () => {
-    const { app } = montar((nonce) => idToken({ nonce, roles: ['revisor'] }));
+    const { app } = montar((nonce) => idToken({ nonce, groups: [GRUPO_REVISORES] }));
     const primeiro = await entrar(app);
     expect(
       (
@@ -364,7 +452,7 @@ describe('login de produção com Entra ID (Authorization Code + PKCE)', () => {
   });
 
   it('novo login descarta a sessão anterior do navegador (sem fixação de sessão)', async () => {
-    const { app } = montar((nonce) => idToken({ nonce, roles: ['revisor'] }));
+    const { app } = montar((nonce) => idToken({ nonce, groups: [GRUPO_REVISORES] }));
     const abrir = async () => {
       const { estado } = await entrar(app);
       return cookie(
@@ -385,7 +473,7 @@ describe('login de produção com Entra ID (Authorization Code + PKCE)', () => {
   });
 
   it('logout exige CSRF, encerra a sessão local e devolve o logout do Entra ID', async () => {
-    const { app, eventos } = montar((nonce) => idToken({ nonce, roles: ['executor'] }));
+    const { app, eventos } = montar((nonce) => idToken({ nonce, groups: [GRUPO_EXECUTORES] }));
     const { estado } = await entrar(app);
     const sessao = cookie(
       (await retornar(app, `code=x&state=${estado}`, estado)).headers['set-cookie'],
@@ -413,7 +501,7 @@ describe('login de produção com Entra ID (Authorization Code + PKCE)', () => {
   });
 
   it('com OIDC não existe login simulado, e o modo é informado à interface', async () => {
-    const { app } = montar((nonce) => idToken({ nonce, roles: ['revisor'] }));
+    const { app } = montar((nonce) => idToken({ nonce, groups: [GRUPO_REVISORES] }));
     expect(
       (
         await app.inject({
@@ -432,7 +520,9 @@ describe('login de produção com Entra ID (Authorization Code + PKCE)', () => {
 
 describe('autorização: papéis do Entra ID valem na matriz do domínio', () => {
   it('auditor entra mas não pode solicitar execução; executor pode', async () => {
-    const { app } = montar((nonce) => idToken({ nonce, roles: ['Gia.Auditoria'] }));
+    const { app } = montar((nonce) =>
+      idToken({ nonce, groups: [GRUPO_AUDITORES], roles: ['executor', 'administradorGia'] }),
+    );
     const { estado } = await entrar(app);
     const sessao = cookie(
       (await retornar(app, `code=x&state=${estado}`, estado)).headers['set-cookie'],
