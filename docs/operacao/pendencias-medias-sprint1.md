@@ -133,7 +133,13 @@ sessões em memória e decisões de produto, estão em
   de um proxy reverso, o IP da conexão é o do proxy e todos os usuários dividiriam a mesma origem
   (o limite por origem viraria um limite global, folgado de propósito para isso). Para limitar por
   cliente, informe os proxies em quem a API confia, por exemplo `GIA_API_PROXY_CONFIAVEL=127.0.0.1`
-  (IPs ou CIDRs; `0.0.0.0/0` e redes muito largas são recusados na partida). O `X-Forwarded-For`
+  (IPs ou CIDRs). A lista é validada na partida, e também ao montar a API, e recusa redes largas
+  demais: IPv4 abaixo de `/8`, IPv6 abaixo de `/16`, `/0`, nomes, palavras-chave e zona (`%`).
+  **IPv4 mapeado em IPv6** (`::ffff:a.b.c.d/N`) é normalizado para IPv4 antes de validar, porque o
+  Fastify o compara como a rede IPv4 equivalente: o prefixo que vale é `N - 96`, então
+  `::ffff:0.0.0.0/96` (o `0.0.0.0/0`, que faria qualquer cliente escolher a própria origem pelo
+  `X-Forwarded-For`) é recusado, e `::ffff:10.0.0.0/104` vira `10.0.0.0/8`. Rede IPv6 que contém
+  todo o bloco mapeado (`::/16`, `::/64`...) também é recusada. O `X-Forwarded-For`
   só vale quando a conexão vem desses endereços; sem a variável ele é ignorado, porque qualquer
   cliente poderia forjá-lo. Uma contagem de saltos não serve: o Fastify a trata como "não confiar
   em ninguém".
@@ -146,5 +152,8 @@ sessões em memória e decisões de produto, estão em
   `apps/api/src/oidc.test.ts` ("limite de logins pendentes", pelo HTTP: recusa idêntica sem IP,
   vaga devolvida quando um login conclui, expiração de 5 minutos, varredura sem retorno,
   `X-Forwarded-For` ignorado e aceito só do proxy confiável, IPv6 /64 e o uso normal intacto) e
-  `apps/api/src/producao.test.ts` (validação de `GIA_API_PROXY_CONFIAVEL`).
+  `apps/api/src/producao.test.ts` (validação de `GIA_API_PROXY_CONFIAVEL`, inclusive o IPv4
+  mapeado e a normalização; revisão do PR #34) e, pelo HTTP, o bloco "CIDR IPv4 mapeado em IPv6"
+  de `oidc.test.ts` (31 inícios variando o `X-Forwarded-For`: 30 aceitos e 1 recusa com proxy
+  restrito, e o `::ffff:0.0.0.0/96` nem sobe).
 - **Fora de escopo:** o mapeamento de papéis (M1) não mudou; nenhuma escrita externa foi habilitada.

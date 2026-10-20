@@ -22,7 +22,7 @@ liberação.
 | `GIA_WORKER_SAUDE_MAXIMO_MS`      | sonda        | `90000`           | idade máxima do batimento para considerar o worker vivo            |
 | `GIA_<SISTEMA>_MODO`              | API e worker | `simulado`        | `real` liga o conector do sistema (`ad`, `m365`, `docusign`, `softexpert`, `jira`) |
 | `GIA_OIDC_*`                      | API          | —                 | login Entra ID; obrigatório em `producao` ([guia](login-entra-id.md)) |
-| `GIA_API_PROXY_CONFIAVEL`         | API          | vazio             | IPs/CIDRs dos proxies reversos confiáveis (ex.: `127.0.0.1`): só deles o `X-Forwarded-For` vale, para limitar o login por cliente (M8) |
+| `GIA_API_PROXY_CONFIAVEL`         | API          | vazio             | IPs/CIDRs dos proxies reversos confiáveis (ex.: `127.0.0.1`): só deles o `X-Forwarded-For` vale, para limitar o login por cliente (M8); redes largas, inclusive `::ffff:0.0.0.0/96`, são recusadas |
 | `GIA_AUTH_SIMULADA`               | API          | `false`           | só em `teste` declarado; recusado em `producao`                    |
 
 Regras aplicadas no arranque (o erro cita só nomes de variáveis):

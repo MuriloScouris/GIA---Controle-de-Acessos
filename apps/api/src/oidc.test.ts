@@ -14,6 +14,7 @@ import { criarAppDoAmbiente } from './index.js';
 import { COOKIE_ESTADO_OIDC, type EventoLogin } from './http/rotas-oidc.js';
 import { COOKIE_SESSAO } from './http/protocolo.js';
 import { autenticacaoDoAmbiente } from './sessao/autenticacao-ambiente.js';
+import { proxiesConfiaveis } from './proxies-confiaveis.js';
 import { LIMITES_PADRAO } from './sessao/logins-pendentes.js';
 import {
   carregarConfiguracaoOidc,
@@ -789,6 +790,54 @@ describe('limite de logins pendentes no /sessao/oidc/entrar (M8)', () => {
     expect(aceito(await entrarDe(app, '198.51.100.7', '203.0.113.2'))).toBe(true);
     expect(recusado(await entrarDe(app, '198.51.100.7', '203.0.113.3'))).toBe(true);
     await app.close();
+  });
+
+  describe('CIDR IPv4 mapeado em IPv6 (parser -> trustProxy -> /sessao/oidc/entrar)', () => {
+    /** 31 inícios de um mesmo IP, cada um com um X-Forwarded-For diferente: quantos foram aceitos. */
+    const aceitosVariandoXff = async (
+      app: ReturnType<typeof montar>['app'],
+      ip: string,
+      total = 31,
+    ) => {
+      let aceitos = 0;
+      for (let i = 0; i < total; i += 1) {
+        if (aceito(await entrarDe(app, ip, `203.0.113.${i + 1}`))) aceitos += 1;
+      }
+      return aceitos;
+    };
+
+    it('::ffff:0.0.0.0/96 equivale a 0.0.0.0/0: o parser recusa e a API não sobe', () => {
+      expect(proxiesConfiaveis('::ffff:0.0.0.0/96')).toBe('invalido');
+      // Mesmo sem passar pelo ambiente, a montagem da API recusa a confiança larga.
+      expect(() => montar(gerar, {}, { proxiesConfiaveis: ['::ffff:0.0.0.0/96'] })).toThrow(
+        expect.objectContaining({ variaveis: ['GIA_API_PROXY_CONFIAVEL'] }),
+      );
+    });
+
+    it('mapeado restrito: só o proxy confiável escolhe a origem; o resto não escapa do limite', async () => {
+      const lista = proxiesConfiaveis('::ffff:10.0.0.0/104');
+      expect(lista).toEqual(['10.0.0.0/8']);
+      const { app } = montar(gerar, {}, { proxiesConfiaveis: [...(lista as string[])] });
+      // Cliente de fora variando o cabeçalho: 30 aceitos e a 31ª recusada.
+      expect(await aceitosVariandoXff(app, '198.51.100.7')).toBe(30);
+      // O proxy da rede confiável vê cada cliente por sua origem: nenhum é barrado.
+      expect(await aceitosVariandoXff(app, '10.1.2.3')).toBe(31);
+      await app.close();
+    });
+
+    it('mapeado de um IP só (::ffff:127.0.0.1) vale como 127.0.0.1 e nada além', async () => {
+      const lista = proxiesConfiaveis('::ffff:127.0.0.1');
+      const { app } = montar(gerar, {}, { proxiesConfiaveis: [...(lista as string[])] });
+      expect(await aceitosVariandoXff(app, '127.0.0.1')).toBe(31);
+      expect(await aceitosVariandoXff(app, '198.51.100.7')).toBe(30);
+      await app.close();
+    });
+
+    it('referência: proxy restrito a 127.0.0.1 dá o mesmo resultado (30 aceitos e 1 recusa)', async () => {
+      const { app } = montar(gerar, {}, { proxiesConfiaveis: ['127.0.0.1'] });
+      expect(await aceitosVariandoXff(app, '198.51.100.7')).toBe(30);
+      await app.close();
+    });
   });
 
   it('IPv6 do mesmo /64 divide a origem', async () => {

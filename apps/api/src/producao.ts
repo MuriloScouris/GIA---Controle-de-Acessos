@@ -1,4 +1,3 @@
-import { isIP } from 'node:net';
 import {
   ErroConfiguracao,
   RegistroMetricas,
@@ -18,37 +17,14 @@ import { exigirSegredosForaDoAmbiente } from '@gia/contratos/segredos';
 import { configuracaoPadrao, type ConfiguracaoSistemas } from '@gia/dominio';
 import { VARIAVEL_URL_BANCO } from '@gia/persistencia';
 import { VARIAVEL_TLS_NODE, exigirTlsVerificado } from '@gia/contratos';
+import { proxiesConfiaveis } from './proxies-confiaveis.js';
 
 export const VARIAVEL_METRICAS_PORTA = 'GIA_METRICAS_PORTA';
 export const VARIAVEL_VERSAO = 'GIA_VERSAO';
 /** Proxies reversos em que a API confia para ler o IP do cliente em `X-Forwarded-For` (M8). */
 export const VARIAVEL_PROXY_CONFIAVEL = 'GIA_API_PROXY_CONFIAVEL';
 
-/**
- * `GIA_API_PROXY_CONFIAVEL`: lista, separada por vírgula, de IPs ou CIDRs dos proxies que ficam na
- * frente da API (por exemplo `127.0.0.1`). O cabeçalho só vale quando a conexão vem de um deles:
- * de qualquer outro cliente ele é ignorado, porque seria forjável. Vazio (padrão) = nenhum, e a
- * origem é o endereço do socket, que atrás de um proxy é o do próprio proxy. Redes muito largas
- * (que confiariam em quase todo mundo) são recusadas.
- */
-export function proxiesConfiaveis(valor: string | undefined): readonly string[] | 'invalido' {
-  const texto = valor?.trim() ?? '';
-  if (texto === '') return [];
-  const lista: string[] = [];
-  for (const bruto of texto.split(',')) {
-    const entrada = bruto.trim();
-    const [ip, prefixo, ...resto] = entrada.split('/');
-    const versao = isIP(ip ?? '');
-    if (versao === 0 || resto.length > 0) return 'invalido';
-    if (prefixo !== undefined) {
-      const bits = /^\d{1,3}$/.test(prefixo) ? Number(prefixo) : NaN;
-      const [minimo, maximo] = versao === 4 ? [8, 32] : [16, 128];
-      if (!(bits >= minimo && bits <= maximo)) return 'invalido';
-    }
-    lista.push(entrada);
-  }
-  return lista;
-}
+export { proxiesConfiaveis };
 
 /** O que a API precisa do ambiente, já validado. */
 export interface AmbienteApi {

@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import {
+  ErroConfiguracao,
   RegistroMetricas,
   criarRegistrador,
   liberacaoDosGates,
@@ -24,6 +25,7 @@ import { registrarObservabilidade, type VerificacoesProntidao } from './http/obs
 import { enviarFalha } from './http/protocolo.js';
 import { registrarRotasOidc, type EventoLogin } from './http/rotas-oidc.js';
 import { registrarRotas, registrarRotasDeSessaoSimulada } from './http/rotas.js';
+import { proxiesConfiaveis } from './proxies-confiaveis.js';
 import type { LimitesLoginsPendentes } from './sessao/logins-pendentes.js';
 import type { ClienteOidc } from './sessao/oidc.js';
 import { criarPersistenciaEmMemoria } from './persistencia/memoria.js';
@@ -113,6 +115,9 @@ export function criarApp(opcoes: OpcoesApp = {}): FastifyInstance {
     casosDeUso,
   };
 
+  // A lista é validada também aqui: quem monta a API sem passar pelo ambiente não abre confiança larga.
+  const proxies = proxiesConfiaveis(opcoes.proxiesConfiaveis?.join(','));
+  if (proxies === 'invalido') throw new ErroConfiguracao(['GIA_API_PROXY_CONFIAVEL']);
   // O ID de correlação é sempre gerado aqui; cabeçalho do cliente não é aceito.
   const app = Fastify({
     logger: false,
@@ -120,7 +125,7 @@ export function criarApp(opcoes: OpcoesApp = {}): FastifyInstance {
     genReqId: () => randomUUID(),
     // Sem proxy confiável o X-Forwarded-For é ignorado: qualquer cliente poderia forjá-lo. Uma
     // contagem de saltos não serve: o Fastify a trata como "não confiar em ninguém".
-    trustProxy: opcoes.proxiesConfiaveis?.length ? [...opcoes.proxiesConfiaveis] : false,
+    trustProxy: proxies.length > 0 ? [...proxies] : false,
   });
 
   app.addHook('onSend', async (_request, reply, payload) => {
