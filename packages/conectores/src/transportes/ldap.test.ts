@@ -9,10 +9,15 @@ import { criarAbridorLdapts, traduzirErroLdap, type OpcoesConexaoLdap } from './
 interface ChamadaFalsa {
   readonly operacao: string;
   readonly timeout: number | undefined;
+  readonly connectTimeout: number | undefined;
 }
 
 const falso = vi.hoisted(() => ({
-  clientes: [] as Array<{ opcoes: { connectTimeout?: number }; chamadas: ChamadaFalsa[] }>,
+  clientes: [] as Array<{
+    opcoes: { connectTimeout?: number };
+    chamadas: ChamadaFalsa[];
+    isBound: boolean;
+  }>,
 }));
 
 // Troca só o Client: registra o `timeout` que valia no momento de cada operação.
@@ -20,11 +25,17 @@ vi.mock('ldapts', async (importarOriginal) => {
   const original = await importarOriginal<typeof Ldapts>();
   class ClienteFalso {
     readonly chamadas: ChamadaFalsa[] = [];
+    /** Vira `false` quando o teste derruba a conexão. */
+    isBound = true;
     constructor(readonly opcoes: ClientOptions) {
       falso.clientes.push(this);
     }
     private registrar(operacao: string) {
-      this.chamadas.push({ operacao, timeout: this.opcoes.timeout });
+      this.chamadas.push({
+        operacao,
+        timeout: this.opcoes.timeout,
+        connectTimeout: this.opcoes.connectTimeout,
+      });
     }
     async bind() {
       this.registrar('bind');
@@ -174,6 +185,45 @@ describe('timeout LDAP limitado ao prazo restante do motor (M4)', () => {
     );
     expect(erro).toMatchObject({ tipo: 'timeout', codigo: 'INTEGRACAO_TIMEOUT' });
     expect(timeoutsDe('bind')).toEqual([]);
+  });
+
+  it('prazo gasto lendo a senha: a conexão e o bind usam o que resta depois dela', async () => {
+    const abrir = abridor({
+      timeoutConexaoMs: 5_000,
+      senha: async () => {
+        avancar(100);
+        return 'senha-de-teste';
+      },
+    });
+    await dentroDoPrazo(300, () => abrir());
+    expect(falso.clientes[0]!.opcoes.connectTimeout).toBe(200);
+    expect(timeoutsDe('bind')[0]!.connectTimeout).toBe(200);
+    expect(timeoutsDe('bind')[0]!.timeout).toBe(200);
+  });
+
+  it('sessão sem conexão: nenhuma operação é enviada, para o ldapts não reconectar sozinho', async () => {
+    await dentroDoPrazo(60_000, async () => {
+      const sessao = await abridor()();
+      falso.clientes[0]!.isBound = false;
+      for (const operacao of [
+        () => sessao.buscar(BUSCA),
+        () => sessao.incluir('CN=x,DC=exemplo', { cn: ['x'] }),
+        () => sessao.alterar('CN=x,DC=exemplo', []),
+        () => sessao.renomear('CN=x,DC=exemplo', 'CN=y,DC=exemplo'),
+      ]) {
+        const erro = await operacao().then(
+          () => null,
+          (e: unknown) => e,
+        );
+        expect(erro).toMatchObject({ tipo: 'conexaoRecusada', codigo: 'AD_CONEXAO_PERDIDA' });
+      }
+    });
+    expect(falso.clientes[0]!.chamadas.map((c) => c.operacao)).toEqual(['bind']);
+  });
+
+  it('o ldapts é criado sem autoRebind', async () => {
+    await abridor()();
+    expect(falso.clientes[0]!.opcoes).toMatchObject({ autoRebind: false });
   });
 
   it('fora de um prazo do motor vale só o timeoutOperacaoMs', async () => {

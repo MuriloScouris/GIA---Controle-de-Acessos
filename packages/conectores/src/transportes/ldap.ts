@@ -175,17 +175,21 @@ export function criarAbridorLdapts(opcoes: OpcoesConexaoLdap): AbrirSessaoLdap {
     let ultimaFalha: ErroFornecedor | null = null;
     for (const url of opcoes.urls) {
       exigirPrazo();
-      // O ldapts lê `timeout` a cada requisição, no mesmo objeto: cada operação o ajusta ao prazo restante (M4).
+      // O ldapts lê `timeout` e `connectTimeout` do mesmo objeto, a cada requisição e a cada conexão:
+      // cada etapa os reajusta ao prazo restante (M4). `autoRebind` fica desligado de propósito.
       const opcoesCliente: ClientOptions = {
         url,
         connectTimeout: limitarAoPrazo(opcoes.timeoutConexaoMs),
         timeout: limitarAoPrazo(opcoes.timeoutOperacaoMs),
         tlsOptions: opcoesTls(opcoes),
         strictDN: true,
+        autoRebind: false,
       };
       const cliente = new Client(opcoesCliente);
       try {
         const senha = await opcoes.senha();
+        // Ler a senha pode ter gasto o prazo: o orçamento da conexão e do bind sai de agora.
+        opcoesCliente.connectTimeout = limitarAoPrazo(opcoes.timeoutConexaoMs);
         opcoesCliente.timeout = limitarAoPrazo(opcoes.timeoutOperacaoMs);
         await cliente.bind(opcoes.bindDn, senha);
         return sessaoDe(cliente, () => {
@@ -202,11 +206,30 @@ export function criarAbridorLdapts(opcoes: OpcoesConexaoLdap): AbrirSessaoLdap {
   };
 }
 
-/** `limitarTimeout` ajusta o timeout do cliente ao prazo restante e lança `timeout` se ele já venceu. */
+/**
+ * `limitarTimeout` ajusta o timeout do cliente ao prazo restante e lança `timeout` se ele já venceu.
+ *
+ * O ldapts reconecta sozinho quando o socket caiu (`_ensureConnected`), antes de enviar, e o prazo
+ * da operação só começa a contar depois disso: uma escrita poderia sair depois do deadline. Por
+ * isso cada operação confere, no mesmo instante em que chama o ldapts, se a sessão ainda está
+ * conectada e autenticada; se não, falha sem enviar nada e sem reconectar. Não há `await` entre a
+ * conferência e o envio, então o socket não pode cair no intervalo.
+ */
 function sessaoDe(cliente: Client, limitarTimeout: () => void): SessaoLdap {
+  const preparar = () => {
+    limitarTimeout();
+    if (!cliente.isBound) {
+      // Cada sessão faz no máximo uma escrita; nada foi enviado para esta operação.
+      throw new ErroFornecedor(
+        'conexaoRecusada',
+        'AD_CONEXAO_PERDIDA',
+        'A conexão com o AD caiu antes de a operação ser enviada; nada foi feito.',
+      );
+    }
+  };
   return {
     async buscar(busca) {
-      limitarTimeout();
+      preparar();
       const { searchEntries } = await cliente.search(busca.base, {
         scope: busca.escopo,
         filter: busca.filtro,
@@ -226,7 +249,7 @@ function sessaoDe(cliente: Client, limitarTimeout: () => void): SessaoLdap {
       });
     },
     async incluir(dn, atributos) {
-      limitarTimeout();
+      preparar();
       await cliente.add(
         dn,
         Object.entries(atributos).map(
@@ -235,7 +258,7 @@ function sessaoDe(cliente: Client, limitarTimeout: () => void): SessaoLdap {
       );
     },
     async alterar(dn, mudancas) {
-      limitarTimeout();
+      preparar();
       await cliente.modify(
         dn,
         mudancas.map(
@@ -251,7 +274,7 @@ function sessaoDe(cliente: Client, limitarTimeout: () => void): SessaoLdap {
       );
     },
     async renomear(dn, novoDn) {
-      limitarTimeout();
+      preparar();
       await cliente.modifyDN(dn, novoDn);
     },
     async encerrar() {

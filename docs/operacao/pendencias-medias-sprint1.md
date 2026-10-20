@@ -77,15 +77,32 @@ sessões em memória e decisões de produto, estão em
   o início da operação.
 - **Correção (`packages/conectores/src/prazo.ts` e `transportes/ldap.ts`):** `limitarAoPrazo(ms)`
   devolve o menor entre o timeout próprio e o prazo restante (inteiro, nunca abaixo de 1) e lança
-  `timeout` (`INTEGRACAO_TIMEOUT`) sem enviar nada se o prazo já venceu. O ldapts lê `timeout` do
-  mesmo objeto de opções a cada requisição, então o transporte o reajusta antes de **cada**
-  operação (bind, busca, inclusão, alteração e renomeação) e o `connectTimeout` também é limitado
-  ao prazo. Fora de `dentroDoPrazo` vale só o `timeoutOperacaoMs`, como antes.
-- **Limite conhecido:** a conexão e o bind são duas fases do ldapts, cada uma limitada ao prazo
-  restante na abertura; o tempo somado das duas pode passar do prazo por, no máximo, um
-  `connectTimeout`. As operações depois do bind não têm essa folga.
+  `timeout` (`INTEGRACAO_TIMEOUT`) sem enviar nada se o prazo já venceu. O ldapts lê `timeout` e
+  `connectTimeout` do mesmo objeto de opções, então o transporte os reajusta a cada etapa: na
+  abertura (depois de ler a senha), no bind e antes de **cada** operação (busca, inclusão,
+  alteração e renomeação). Fora de `dentroDoPrazo` vale só o `timeoutOperacaoMs`, como antes.
+- **Sem reconexão implícita (revisão do PR #32):** o ldapts reconecta sozinho quando o socket caiu,
+  antes de enviar, e o prazo da operação só começa a contar depois disso. Por isso cada operação
+  confere, no mesmo instante em que chama o ldapts (sem `await` no meio), o prazo e se a sessão
+  ainda está conectada e autenticada (`isBound`). Se o socket caiu, a operação falha com
+  `conexaoRecusada` / `AD_CONEXAO_PERDIDA` sem enviar nada e sem reconectar (cada sessão faz no
+  máximo uma escrita, então nada foi feito para aquela operação); o worker decide se refaz. O
+  `autoRebind` do ldapts fica desligado.
+- **O que é garantido:** busca, inclusão, alteração e renomeação **nunca são enviadas depois do
+  prazo do motor**, nem por reconexão, e a espera da resposta é limitada ao prazo restante no
+  momento do envio. Uma operação já enviada que não responde a tempo vira `timeout` (o AD pode ter
+  agido: efeito desconhecido, segue para reconciliação).
+- **O que não é garantido:** a abertura da sessão (conexão e bind) usa o prazo restante de quando
+  começa, mas o ldapts só envia o bind depois de conectar, e a espera da resposta do bind começa
+  nesse momento; ela pode passar do prazo por até o tempo gasto conectando. O bind só autentica,
+  não altera o AD. Os limites também valem na precisão dos timers do Node (milissegundos, sujeitos
+  ao atraso do laço de eventos): é um teto de espera, não um relógio de tempo real.
 - **Testes:** `packages/conectores/src/transportes/ldap.test.ts` (prazo restante menor, maior,
-  igual e expirado, por operação; expirado antes da sessão e durante a leitura da senha; e um
-  contrato com o ldapts real, num servidor local, que prova que o timeout alterado depois do bind
-  vale) e `packages/conectores/src/prazo.test.ts` (`limitarAoPrazo`).
+  igual e expirado, por operação; expirado antes da sessão e durante a leitura da senha; sessão sem
+  conexão sem enviar; e um contrato com o ldapts real, num servidor local, que prova que o timeout
+  alterado depois do bind vale), `packages/conectores/src/transportes/ldap.reconexao.test.ts`
+  (LDAPS local com certificado verificado: o socket cai depois do bind e a reconexão é lenta, com
+  zero escrita recebida pelo servidor e nenhuma reconexão; também com prazo de sobra, por operação)
+  e `packages/conectores/src/prazo.test.ts` (`limitarAoPrazo`). O certificado do teste é gerado na
+  hora com o `openssl` do ambiente; sem ele o teste é pulado fora do CI e falha no CI.
 - **Fora de escopo:** os demais conectores não mudam; nenhuma escrita externa foi habilitada.
