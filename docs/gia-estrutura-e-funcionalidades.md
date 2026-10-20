@@ -193,7 +193,8 @@ Recebe chamados do Jira, com um request type para celetista e outro para terceir
 | Concluído | Consultar e emitir documento (pela API). |
 | Rejeitado | Reabrir para revisão. |
 
-- **Identidade sugerida:** login a partir do e-mail corporativo (ou nome + iniciais dos sobrenomes, até 20 caracteres), UPN, e-mail, `proxyAddresses` e nome de exibição.
+- **Identidade sugerida** (*Implementado*): sai do e-mail corporativo sugerido pelo RH. O login é a parte local do e-mail (até 20 caracteres, o limite do AD); o UPN e o e-mail são o próprio endereço; `proxyAddresses` recebe `SMTP:<e-mail>`; o nome de exibição é o nome completo. O Gia só verifica colisão e uso (AD, M365 e o próprio Gia) e **não gera login alternativo**. E-mail ausente ou inválido, login acima do limite ou colisão viram pendência para **ajuste humano** da identidade (`origem: ajusteManual`): aprovar exige identidade presente, verificada com os valores atuais e não usada por outra pessoa.
+  - *Planejado (alvo):* um login alternativo a partir do nome + iniciais dos sobrenomes, até 20 caracteres, quando o e-mail não servir. Hoje não existe; esse caso depende do ajuste humano.
 - **Itens por regra:** OU, departamento e grupos AD; perfil e grupo DocuSign; área, função e grupo SoftExpert; grupos Jira; plano de licenças e grupo M365.
 - **Revisão congelada:** a proposta aprovada guarda a versão das regras usada; mudar regras depois não altera o que já foi aprovado. Novos itens exigem nova aprovação.
 
