@@ -16,6 +16,7 @@ import { COOKIE_SESSAO } from './http/protocolo.js';
 import { autenticacaoDoAmbiente } from './sessao/autenticacao-ambiente.js';
 import { proxiesConfiaveis } from './proxies-confiaveis.js';
 import { LIMITES_PADRAO } from './sessao/logins-pendentes.js';
+import { criarSessoesSimuladas, type SessoesSimuladas } from './sessao/sessoes-simuladas.js';
 import {
   carregarConfiguracaoOidc,
   criarClienteOidc,
@@ -860,5 +861,173 @@ describe('limite de logins pendentes no /sessao/oidc/entrar (M8)', () => {
       expect((await retornar(app, `code=x&state=${estado}`, estado)).statusCode).toBe(303);
     }
     await app.close();
+  });
+});
+
+describe('claims inválidos do ID token: nenhuma sessão é aberta (M9)', () => {
+  const EMISSOR = `https://login.microsoftonline.com/${TENANT}/v2.0`;
+  const OUTRO_TENANT = '99999999-2222-4333-8444-555555555555';
+  const OUTRO_APP = '12345678-1234-4234-8234-123456789012';
+
+  /** Ajustes que um objeto de claims não consegue expressar: `null` omite o claim registrado. */
+  interface Variacao {
+    readonly emissor?: string | null;
+    readonly audiencia?: string | string[] | null;
+    readonly exp?: string | number | null;
+    readonly iat?: number | null;
+    readonly nbf?: string | number;
+  }
+
+  /** Token bem formado e assinado pela chave do tenant; o teste estraga só o que quer provar. */
+  async function tokenDeTeste(claims: Record<string, unknown>, v: Variacao = {}): Promise<string> {
+    const jwt = new SignJWT({
+      tid: TENANT,
+      oid: OID,
+      name: 'Pessoa Fictícia',
+      groups: [GRUPO_REVISORES],
+      ...claims,
+    }).setProtectedHeader({ alg: 'RS256', kid: 'chave-1' });
+    if (v.emissor !== null) jwt.setIssuer(v.emissor ?? EMISSOR);
+    if (v.audiencia !== null) jwt.setAudience(v.audiencia ?? CLIENTE);
+    if (v.iat !== null) jwt.setIssuedAt(v.iat);
+    if (v.exp !== null) jwt.setExpirationTime(v.exp ?? '10m');
+    if (v.nbf !== undefined) jwt.setNotBefore(v.nbf);
+    return jwt.sign(chavePrivada);
+  }
+
+  /** API com um espião nas sessões: prova que `abrir` nunca foi chamado, além de não haver cookie. */
+  function montarComEspiao(gerarToken: (nonce: string) => Promise<string>) {
+    const abertas: unknown[] = [];
+    const base = criarSessoesSimuladas({ agora: () => new Date().toISOString() });
+    const sessoes: SessoesSimuladas = {
+      ...base,
+      abrir: (sessao) => (abertas.push(sessao), base.abrir(sessao)),
+    };
+    return { ...montar(gerarToken, {}, { sessoes }), abertas };
+  }
+
+  /** O que toda recusa tem em comum, sem nenhuma pista do que estava errado no token. */
+  async function exigirRecusa(
+    caso: ReturnType<typeof montarComEspiao>,
+    estado: string,
+    res: Awaited<ReturnType<typeof retornar>>,
+  ) {
+    expect(res.statusCode).toBe(303);
+    expect(res.headers.location).toBe('/login?erro=LOGIN_TOKEN_INVALIDO');
+    expect(res.body).toBe('');
+    const cookies = ([] as string[]).concat(res.headers['set-cookie'] ?? []);
+    expect(cookie(cookies, COOKIE_SESSAO)).toBeNull();
+    // Só o cookie de estado, zerado: nenhuma sessão nasceu.
+    expect(cookies).toHaveLength(1);
+    expect(cookies[0]).toMatch(new RegExp(`^${COOKIE_ESTADO_OIDC}=; .*Max-Age=0$`));
+    expect(caso.abertas).toHaveLength(0);
+    expect(caso.eventos.map((e) => e.evento)).not.toContain('login_concluido');
+    expect(caso.eventos.at(-1)).toEqual({
+      evento: 'login_recusado',
+      codigo: 'LOGIN_TOKEN_INVALIDO',
+    });
+    // Sem sessão no servidor, e o estado do login já foi gasto: não dá para tentar de novo.
+    expect((await caso.app.inject({ method: 'GET', url: '/sessao' })).statusCode).toBe(401);
+    const repetido = await retornar(caso.app, `code=x&state=${estado}`, estado);
+    expect(repetido.headers.location).toBe('/login?erro=LOGIN_ESTADO_INVALIDO');
+    expect(caso.abertas).toHaveLength(0);
+    await caso.app.close();
+  }
+
+  const casos: Array<[string, (nonce: string) => Promise<string>]> = [
+    // nonce
+    ['nonce trocado', (n) => tokenDeTeste({ nonce: `${n}x` })],
+    ['nonce com outra caixa', (n) => tokenDeTeste({ nonce: n.toUpperCase() })],
+    ['nonce vazio', () => tokenDeTeste({ nonce: '' })],
+    ['nonce ausente', () => tokenDeTeste({ nonce: undefined })],
+    ['nonce que não é texto', () => tokenDeTeste({ nonce: 12345 })],
+    // aud
+    ['aud de outra aplicação', (n) => tokenDeTeste({ nonce: n }, { audiencia: OUTRO_APP })],
+    [
+      'aud com sufixo no client ID',
+      (n) => tokenDeTeste({ nonce: n }, { audiencia: `${CLIENTE}x` }),
+    ],
+    ['aud lista sem o client ID', (n) => tokenDeTeste({ nonce: n }, { audiencia: [OUTRO_APP] })],
+    ['aud ausente', (n) => tokenDeTeste({ nonce: n }, { audiencia: null })],
+    // iss
+    [
+      'iss de outro tenant',
+      (n) =>
+        tokenDeTeste(
+          { nonce: n },
+          { emissor: `https://login.microsoftonline.com/${OUTRO_TENANT}/v2.0` },
+        ),
+    ],
+    [
+      'iss da v1.0 (sts.windows.net)',
+      (n) => tokenDeTeste({ nonce: n }, { emissor: `https://sts.windows.net/${TENANT}/` }),
+    ],
+    [
+      'iss sem o /v2.0',
+      (n) => tokenDeTeste({ nonce: n }, { emissor: `https://login.microsoftonline.com/${TENANT}` }),
+    ],
+    ['iss com barra no fim', (n) => tokenDeTeste({ nonce: n }, { emissor: `${EMISSOR}/` })],
+    [
+      'iss sem HTTPS',
+      (n) =>
+        tokenDeTeste({ nonce: n }, { emissor: `http://login.microsoftonline.com/${TENANT}/v2.0` }),
+    ],
+    [
+      'iss de outro domínio',
+      (n) => tokenDeTeste({ nonce: n }, { emissor: `https://login.exemplo.com/${TENANT}/v2.0` }),
+    ],
+    ['iss ausente', (n) => tokenDeTeste({ nonce: n }, { emissor: null })],
+    // tid
+    ['tid de outro tenant', (n) => tokenDeTeste({ nonce: n, tid: OUTRO_TENANT })],
+    ['tid vazio', (n) => tokenDeTeste({ nonce: n, tid: '' })],
+    ['tid ausente', (n) => tokenDeTeste({ nonce: n, tid: undefined })],
+    ['tid que não é texto', (n) => tokenDeTeste({ nonce: n, tid: 123 })],
+    // exp (a tolerância de relógio é de 2 minutos)
+    ['exp vencido há 5 minutos', (n) => tokenDeTeste({ nonce: n }, { exp: '-5m' })],
+    ['exp vencido há 3 minutos', (n) => tokenDeTeste({ nonce: n }, { exp: '-3m' })],
+    ['exp vencido há um dia', (n) => tokenDeTeste({ nonce: n }, { exp: '-1d' })],
+    ['exp ausente', (n) => tokenDeTeste({ nonce: n }, { exp: null })],
+    // iat e nbf
+    ['iat ausente', (n) => tokenDeTeste({ nonce: n }, { iat: null })],
+    ['nbf no futuro', (n) => tokenDeTeste({ nonce: n }, { nbf: '+10m' })],
+  ];
+
+  it.each(casos)('%s: LOGIN_TOKEN_INVALIDO, sem cookie nem sessão', async (_caso, gerar) => {
+    const caso = montarComEspiao(gerar);
+    const { estado } = await entrar(caso.app);
+    await exigirRecusa(caso, estado, await retornar(caso.app, `code=x&state=${estado}`, estado));
+  });
+
+  it('token legítimo de OUTRO login (nonce de um login anterior) é recusado: sem replay', async () => {
+    let nonceAntigo = '';
+    const caso = montarComEspiao((_atual) => tokenDeTeste({ nonce: nonceAntigo }));
+    // O primeiro login nunca volta; o atacante guarda o token amarrado ao nonce dele.
+    const primeiro = await entrar(caso.app);
+    nonceAntigo = primeiro.local.searchParams.get('nonce')!;
+    const segundo = await entrar(caso.app);
+    expect(segundo.local.searchParams.get('nonce')).not.toBe(nonceAntigo);
+    await exigirRecusa(
+      caso,
+      segundo.estado,
+      await retornar(caso.app, `code=x&state=${segundo.estado}`, segundo.estado),
+    );
+  });
+
+  it('o caso positivo continua abrindo a sessão (os negativos não passam por um teste vazio)', async () => {
+    const caso = montarComEspiao((nonce) => tokenDeTeste({ nonce }));
+    const { estado } = await entrar(caso.app, '/pedidos/123');
+    const res = await retornar(caso.app, `code=x&state=${estado}`, estado);
+    expect(res.statusCode).toBe(303);
+    expect(res.headers.location).toBe('/pedidos/123');
+    const sessao = cookie(res.headers['set-cookie'], COOKIE_SESSAO)!.split(';')[0]!;
+    expect(caso.abertas).toHaveLength(1);
+    expect(caso.eventos.at(-1)).toMatchObject({ evento: 'login_concluido', usuarioId: OID });
+    const atual = await caso.app.inject({
+      method: 'GET',
+      url: '/sessao',
+      headers: { cookie: sessao },
+    });
+    expect(atual.statusCode).toBe(200);
+    await caso.app.close();
   });
 });
