@@ -5,15 +5,14 @@ import {
   RegistroMetricas,
   carregarGatesDeEscrita,
   criarRegistrador,
-  exigirSegredosForaDoAmbiente,
   liberacaoDosGates,
   nivelDeLog,
   portaDeMetricas,
-  resolverSegredosDeArquivo,
-  servirMetricas,
   type GatesDeEscrita,
   type VariaveisAmbiente,
 } from '@gia/contratos';
+import { servirMetricas } from '@gia/contratos/observabilidade-servidor';
+import { exigirSegredosForaDoAmbiente, resolverSegredosDeArquivo } from '@gia/contratos/segredos';
 import {
   criarCatalogoSimulado,
   carregarSelecaoIntegracoes,

@@ -4,7 +4,6 @@ import {
   carregarConfiguracaoApi,
   carregarGatesDeEscrita,
   criarRegistrador,
-  exigirSegredosForaDoAmbiente,
   liberacaoDosGates,
   modoDosGates,
   nivelDeLog,
@@ -14,6 +13,7 @@ import {
   type Registrador,
   type VariaveisAmbiente,
 } from '@gia/contratos';
+import { exigirSegredosForaDoAmbiente } from '@gia/contratos/segredos';
 import { configuracaoPadrao, type ConfiguracaoSistemas } from '@gia/dominio';
 import { VARIAVEL_URL_BANCO } from '@gia/persistencia';
 import { VARIAVEL_TLS_NODE, exigirTlsVerificado } from '@gia/contratos';

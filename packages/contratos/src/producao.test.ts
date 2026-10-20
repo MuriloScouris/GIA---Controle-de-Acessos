@@ -11,13 +11,15 @@ import {
   carregarGatesDeEscrita,
   criarRegistrador,
   escritaPermitida,
-  exigirSegredosForaDoAmbiente,
   liberacaoDosGates,
   modoDosGates,
+} from './index.js';
+import { servirMetricas } from './observabilidade-servidor.js';
+import {
+  exigirSegredosForaDoAmbiente,
   resolverSegredosDeArquivo,
   segredosNoAmbiente,
-  servirMetricas,
-} from './index.js';
+} from './segredos.js';
 
 function variaveis(acao: () => unknown): readonly string[] {
   try {

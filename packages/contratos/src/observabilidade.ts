@@ -1,11 +1,12 @@
-import { createServer, type Server } from 'node:http';
 import { sanitizarTexto } from '@gia/dominio';
 
 /**
- * Observabilidade sem dependências: logs estruturados (JSON por linha) com
- * correlação e métricas no formato de texto do Prometheus. Tudo que sai daqui
- * passa por sanitização (regra 12) e mascaramento de dados pessoais: logs e
- * métricas nunca levam senha, token, CPF ou e-mail.
+ * Observabilidade sem dependências de servidor: logs estruturados (JSON por
+ * linha) com correlação e métricas no formato de texto do Prometheus. Tudo
+ * que sai daqui passa por sanitização (regra 12) e mascaramento de dados
+ * pessoais: logs e métricas nunca levam senha, token, CPF ou e-mail.
+ * Seguro para o navegador: quem expõe as métricas num servidor HTTP é
+ * `./observabilidade-servidor.js` (Node-only, não reexportado pelo índice).
  */
 
 export type NivelLog = 'debug' | 'info' | 'aviso' | 'erro';
@@ -245,28 +246,6 @@ export class RegistroMetricas {
 }
 
 export const TIPO_METRICAS = 'text/plain; version=0.0.4; charset=utf-8';
-
-/**
- * Servidor só de métricas, separado da porta pública da API e ligado por
- * padrão em `127.0.0.1`: quem raspa é o agente do ambiente, não a internet.
- */
-export function servirMetricas(
-  registro: RegistroMetricas,
-  opcoes: { readonly porta: number; readonly host?: string },
-): Promise<Server> {
-  const servidor = createServer((req, res) => {
-    if (req.method === 'GET' && (req.url === '/metrics' || req.url === '/metricas')) {
-      res.writeHead(200, { 'content-type': TIPO_METRICAS, 'cache-control': 'no-store' });
-      res.end(registro.exportar());
-      return;
-    }
-    res.writeHead(404).end();
-  });
-  return new Promise((resolver, rejeitar) => {
-    servidor.once('error', rejeitar);
-    servidor.listen(opcoes.porta, opcoes.host ?? '127.0.0.1', () => resolver(servidor));
-  });
-}
 
 /** Porta do servidor de métricas (`<VARIAVEL>`); ausente = desligado. */
 export function portaDeMetricas(valor: string | undefined): number | null | 'invalida' {

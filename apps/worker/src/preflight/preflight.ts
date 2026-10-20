@@ -4,10 +4,9 @@ import {
   carregarGatesDeEscrita,
   chamadoJiraSchema,
   prontidaoRespostaSchema,
-  resolverSegredosDeArquivo,
-  segredosNoAmbiente,
   type VariaveisAmbiente,
 } from '@gia/contratos';
+import { resolverSegredosDeArquivo, segredosNoAmbiente } from '@gia/contratos/segredos';
 import {
   carregarConfiguracaoAd,
   carregarConfiguracaoM365,

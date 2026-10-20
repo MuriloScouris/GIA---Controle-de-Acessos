@@ -1,5 +1,6 @@
 import { pathToFileURL } from 'node:url';
-import { ErroConfiguracao, resolverSegredosDeArquivo } from '@gia/contratos';
+import { ErroConfiguracao } from '@gia/contratos';
+import { resolverSegredosDeArquivo } from '@gia/contratos/segredos';
 import { criarBanco, urlDoBanco } from './postgres/conexao.js';
 import { migrarParaUltima } from './postgres/migrador.js';
 

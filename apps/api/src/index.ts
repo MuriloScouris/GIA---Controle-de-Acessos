@@ -4,12 +4,9 @@ import {
   criarLeiturasDoAmbiente,
   carregarSelecaoIntegracoes,
 } from '@gia/conectores';
-import {
-  ErroConfiguracao,
-  resolverSegredosDeArquivo,
-  servirMetricas,
-  type VariaveisAmbiente,
-} from '@gia/contratos';
+import { ErroConfiguracao, type VariaveisAmbiente } from '@gia/contratos';
+import { servirMetricas } from '@gia/contratos/observabilidade-servidor';
+import { resolverSegredosDeArquivo } from '@gia/contratos/segredos';
 import { criarBanco, criarPersistenciaPostgres } from '@gia/persistencia';
 import type { FastifyInstance } from 'fastify';
 import { exigirTlsVerificado } from '@gia/contratos';
