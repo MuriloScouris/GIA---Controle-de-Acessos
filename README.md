@@ -55,11 +55,19 @@ e o documento de um pedido concluído por fornecedores "reais" de teste
 
 ### O que ainda não existe
 
-- **Escrita real:** transportes reais (LDAPS, Graph, REST, SOAP), cofre de
-  segredos e liberação de escrita por sistema. A configuração recusa ligar a
-  escrita externa.
-- **Login real:** a sessão é simulada (`POST /sessao/simulada`); OIDC com
-  Entra ID ainda não existe e a rota simulada não sobe em `producao`.
+O alvo completo, com o status de cada módulo, funcionalidade e tela
+(implementado, parcial, planejado ou standby), está em
+[`docs/gia-estrutura-e-funcionalidades.md`](docs/gia-estrutura-e-funcionalidades.md).
+Em resumo:
+
+- **Validação real:** os transportes reais (LDAPS, Graph, REST, SOAP), os
+  segredos por arquivo do cofre, os gates de escrita por sistema e o login com
+  Entra ID (OIDC) existem e têm teste automatizado. Nada disso foi validado com
+  credenciais e tenants reais, e a escrita externa continua desligada por
+  padrão. O que bloqueia produção está no
+  [runbook](docs/operacao/producao.md#pendências-para-produção).
+- **Sessões compartilhadas:** as sessões ficam na memória da API, que ainda
+  não roda em mais de uma instância.
 - **Conferência e reconciliação pela API:** `conferirExistencia` e
   `reconciliar` respondem `501 ACAO_INDISPONIVEL`.
 - **Simuladores de desenvolvimento vazios:** o worker sobe com o catálogo
@@ -102,6 +110,11 @@ pnpm --filter @gia/worker start
 pnpm --filter @gia/web dev
 ```
 
+Para usar outra porta, a API lê `PORT` e o proxy do Vite lê `GIA_API_PORT`
+(padrão `3000`). Defina as duas, com o mesmo valor, no shell de cada processo:
+o `vite.config.ts` não carrega `.env`. Exemplo: `PORT=3327` na API e
+`GIA_API_PORT=3327` no `pnpm --filter @gia/web dev`.
+
 Sem `GIA_DATABASE_URL`, a API sobe com persistência em memória (útil para a
 interface sozinha), mas aí o worker não enxerga os pedidos.
 
@@ -141,15 +154,17 @@ Cada arquivo de teste de banco cria um PostgreSQL descartável a partir de
 | `apps/web`              | Interface do onboarding (React).                                              |
 | `tests/e2e`             | Cenários ponta a ponta da entrega simulada.                                   |
 
-Decisões de arquitetura em `docs/adr` (fora do repositório nesta fase) e nos
-READMEs de cada pacote.
+Decisões de arquitetura em [`docs/adr`](docs/adr) (ADR-0001 a ADR-0007) e nos
+READMEs de cada pacote. Estrutura e funcionalidades alvo, com o status de cada
+item: [`docs/gia-estrutura-e-funcionalidades.md`](docs/gia-estrutura-e-funcionalidades.md).
 
 ## Operação em produção
 
 Gates de escrita externa, segredos em arquivo do cofre, saúde e prontidão,
 logs estruturados com correlação, métricas, smoke test pós-deploy e rollback:
-[runbook de produção](docs/operacao/producao.md). Produção ainda depende de
-login real (OIDC) e de homologacao autorizada dos conectores reais.
+[runbook de produção](docs/operacao/producao.md). Login com Entra ID (OIDC) e
+conectores reais existem; produção ainda depende de homologação autorizada,
+com credenciais e tenants reais, de cada um deles.
 Composicao e habilitacao controlada: [DEV-287](docs/integracoes/dev-287-composicao.md).
 
 ## Validação da aba Onboarding (DEV-286)
