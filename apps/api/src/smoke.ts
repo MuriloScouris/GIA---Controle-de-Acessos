@@ -1,5 +1,9 @@
 import { pathToFileURL } from 'node:url';
-import { prontidaoRespostaSchema, type VariaveisAmbiente } from '@gia/contratos';
+import {
+  prontidaoPublicaRespostaSchema,
+  prontidaoRespostaSchema,
+  type VariaveisAmbiente,
+} from '@gia/contratos';
 
 /**
  * Smoke test pós-deploy, somente leitura: não cria pedido, não abre sessão e
@@ -15,9 +19,15 @@ export interface VerificacaoSmoke {
 
 export interface OpcoesSmoke {
   readonly url: string;
-  /** URL das métricas (porta interna), se o ambiente as expõe. */
+  /**
+   * URL das métricas (porta interna), se o ambiente as expõe. A prontidão
+   * detalhada é lida na mesma porta, em `/saude/pronta`.
+   */
   readonly urlMetricas?: string;
-  /** Modo de escrita esperado; divergência é falha (ex.: escrita ligada sem querer). */
+  /**
+   * Modo de escrita esperado; divergência é falha (ex.: escrita ligada sem
+   * querer). Só a porta interna informa o modo, então exige `urlMetricas`.
+   */
   readonly modoEsperado?: 'real' | 'simulado';
   /** Em produção o login simulado não pode existir. */
   readonly producao?: boolean;
@@ -60,20 +70,41 @@ export async function executarSmoke(opcoes: OpcoesSmoke): Promise<readonly Verif
 
   await verificar('prontidao', async () => {
     const res = await pedir('/saude/pronta');
-    const corpo = prontidaoRespostaSchema.parse(await res.json());
-    const falhas = Object.entries(corpo.verificacoes).filter(([, v]) => v === 'falha');
+    // Porta pública (M7): só o status. Qualquer detalhe a mais é vazamento.
+    const lido = prontidaoPublicaRespostaSchema.safeParse(await res.json());
+    exigir(lido.success, '/saude/pronta pública expõe mais que o status');
     exigir(
-      res.status === 200 && corpo.status === 'pronta',
-      `indisponível: ${falhas.map(([n]) => n).join(', ')}`,
+      res.status === 200 && lido.data?.status === 'pronta',
+      `/saude/pronta respondeu ${res.status}`,
     );
-    if (opcoes.modoEsperado !== undefined) {
-      exigir(
-        corpo.escrita.modo === opcoes.modoEsperado,
-        `escrita em modo ${corpo.escrita.modo}, esperado ${opcoes.modoEsperado}`,
-      );
-    }
-    return `versão ${corpo.versao}, escrita ${corpo.escrita.modo} [${corpo.escrita.liberadas.join(', ')}]`;
+    return '/saude/pronta 200, só o status';
   });
+
+  if (opcoes.urlMetricas !== undefined || opcoes.modoEsperado !== undefined) {
+    await verificar('prontidao_interna', async () => {
+      exigir(
+        opcoes.urlMetricas !== undefined,
+        'modo de escrita só é conferido na porta interna: informe GIA_SMOKE_METRICAS_URL',
+      );
+      const res = await enviar(new URL('/saude/pronta', opcoes.urlMetricas), {
+        redirect: 'manual',
+        signal: AbortSignal.timeout(prazo),
+      });
+      const corpo = prontidaoRespostaSchema.parse(await res.json());
+      const falhas = Object.entries(corpo.verificacoes).filter(([, v]) => v === 'falha');
+      exigir(
+        res.status === 200 && corpo.status === 'pronta',
+        `indisponível: ${falhas.map(([n]) => n).join(', ')}`,
+      );
+      if (opcoes.modoEsperado !== undefined) {
+        exigir(
+          corpo.escrita.modo === opcoes.modoEsperado,
+          `escrita em modo ${corpo.escrita.modo}, esperado ${opcoes.modoEsperado}`,
+        );
+      }
+      return `versão ${corpo.versao}, escrita ${corpo.escrita.modo} [${corpo.escrita.liberadas.join(', ')}]`;
+    });
+  }
 
   await verificar('cabecalhos', async () => {
     const res = await pedir('/saude');

@@ -4,6 +4,7 @@ import {
   carregarGatesDeEscrita,
   criarRegistrador,
   liberacaoDosGates,
+  prontidaoPublicaRespostaSchema,
   prontidaoRespostaSchema,
   respostaErroSchema,
   respostaSucessoSchema,
@@ -12,7 +13,7 @@ import {
 } from '@gia/contratos';
 import { configuracaoPadrao } from '@gia/dominio';
 import { describe, expect, it } from 'vitest';
-import { CABECALHO_CORRELACAO } from './http/observabilidade.js';
+import { CABECALHO_CORRELACAO, prontidaoDetalhadaDe } from './http/observabilidade.js';
 import { criarAppDoAmbiente } from './index.js';
 import { criarPersistenciaEmMemoria } from './persistencia/memoria.js';
 import { prepararAmbienteApi } from './producao.js';
@@ -139,7 +140,10 @@ describe('configuração segura por ambiente', () => {
   it('sem configuração, a API do ambiente sobe como antes: memória e escrita desligada', async () => {
     const app = criarAppDoAmbiente({ GIA_LOG_NIVEL: 'erro' });
     const res = await app.inject({ method: 'GET', url: '/saude/pronta' });
-    expect(prontidaoRespostaSchema.parse(res.json()).escrita).toEqual({
+    expect(prontidaoPublicaRespostaSchema.parse(res.json())).toEqual({ status: 'pronta' });
+    // O estado da escrita só sai na avaliação detalhada (porta interna).
+    const detalhada = await prontidaoDetalhadaDe(app)!();
+    expect(prontidaoRespostaSchema.parse(detalhada.corpo).escrita).toEqual({
       modo: 'simulado',
       liberadas: [],
     });
@@ -148,18 +152,48 @@ describe('configuração segura por ambiente', () => {
 });
 
 describe('health checks', () => {
-  it('/saude é vivacidade; /saude/pronta verifica a persistência e mostra os gates', async () => {
+  it('/saude é vivacidade; /saude/pronta pública verifica a persistência e mostra só o status', async () => {
     const { app } = montarApi({ versao: 'v-teste' });
     expect((await app.inject({ method: 'GET', url: '/saude' })).json()).toEqual({ status: 'ok' });
     const pronta = await app.inject({ method: 'GET', url: '/saude/pronta' });
     expect(pronta.statusCode).toBe(200);
-    expect(prontidaoRespostaSchema.parse(pronta.json())).toEqual({
+    // M7: nada de ambiente, versão, verificações ou gates na porta pública.
+    expect(pronta.json()).toEqual({ status: 'pronta' });
+    expect(pronta.headers['cache-control']).toBe('no-store');
+    expect(pronta.headers['x-content-type-options']).toBe('nosniff');
+    // O detalhe continua disponível para a porta interna, com o mesmo contrato.
+    const detalhada = await prontidaoDetalhadaDe(app)!();
+    expect(detalhada.codigo).toBe(200);
+    expect(prontidaoRespostaSchema.parse(detalhada.corpo)).toEqual({
       status: 'pronta',
       ambiente: 'teste',
       versao: 'v-teste',
       verificacoes: { persistencia: 'ok' },
       escrita: { modo: 'simulado', liberadas: [] },
     });
+  });
+
+  it('a prontidão pública é a mesma com ou sem sessão, até para o Administrador do Gia', async () => {
+    const gates = carregarGatesDeEscrita({
+      GIA_AMBIENTE: 'teste',
+      GIA_ESCRITA_EXTERNA: 'true',
+      GIA_ESCRITA_LIBERADA: 'ad:criar',
+    });
+    const api = montarApi({ versao: 'v-secreta-123', gates });
+    const anonima = await api.app.inject({ method: 'GET', url: '/saude/pronta' });
+    for (const papel of ['administradorGia', 'administradorTecnico', 'auditor'] as const) {
+      const cookie = await api.entrar(papel);
+      const comSessao = await api.app.inject({
+        method: 'GET',
+        url: '/saude/pronta',
+        headers: { cookie },
+      });
+      expect(comSessao.json()).toEqual(anonima.json());
+    }
+    expect(anonima.json()).toEqual({ status: 'pronta' });
+    // Nem versão, nem ambiente, nem a escrita ligada e liberada vazam.
+    for (const vazamento of ['v-secreta-123', 'teste', 'real', 'ad:criar', 'persistencia'])
+      expect(anonima.body).not.toContain(vazamento);
   });
 
   it('dependência que falha ou não responde deixa a API indisponível (503)', async () => {
@@ -173,7 +207,11 @@ describe('health checks', () => {
     });
     const res = await app.inject({ method: 'GET', url: '/saude/pronta' });
     expect(res.statusCode).toBe(503);
-    expect(prontidaoRespostaSchema.parse(res.json())).toMatchObject({
+    // Pública: só o status; quais dependências falharam fica no log e na porta interna.
+    expect(res.json()).toEqual({ status: 'indisponivel' });
+    const detalhada = await prontidaoDetalhadaDe(app)!();
+    expect(detalhada.codigo).toBe(503);
+    expect(prontidaoRespostaSchema.parse(detalhada.corpo)).toMatchObject({
       status: 'indisponivel',
       verificacoes: { persistencia: 'ok', banco: 'falha', lenta: 'falha' },
     });

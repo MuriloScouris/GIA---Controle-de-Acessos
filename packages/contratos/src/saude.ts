@@ -6,8 +6,20 @@ export const saudeRespostaSchema = z.object({ status: z.literal('ok') });
 export type SaudeResposta = z.infer<typeof saudeRespostaSchema>;
 
 /**
- * Prontidão (`/saude/pronta`): o processo consegue atender. Expõe o estado dos
- * gates de escrita (sem segredo) para o operador conferir o que está ligado.
+ * Prontidão na porta PÚBLICA (`/saude/pronta` da API): só o status, para o
+ * balanceador e as sondas. Detalhes operacionais (ambiente, versão, verificações
+ * e gates de escrita) não saem por aqui (pendência M7).
+ */
+export const prontidaoPublicaRespostaSchema = z.strictObject({
+  status: z.enum(['pronta', 'indisponivel']),
+});
+
+export type ProntidaoPublicaResposta = z.infer<typeof prontidaoPublicaRespostaSchema>;
+
+/**
+ * Prontidão detalhada, só na porta INTERNA de métricas (`GIA_METRICAS_PORTA`,
+ * em loopback): o processo consegue atender, com o estado dos gates de escrita
+ * (sem segredo) para o operador conferir o que está ligado.
  */
 export const prontidaoRespostaSchema = z.strictObject({
   status: z.enum(['pronta', 'indisponivel']),

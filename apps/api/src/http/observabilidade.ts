@@ -1,5 +1,6 @@
 import type {
   GatesDeEscrita,
+  ProntidaoPublicaResposta,
   ProntidaoResposta,
   Registrador,
   RegistroMetricas,
@@ -23,6 +24,24 @@ export const CABECALHO_CORRELACAO = 'x-correlacao-id';
 
 const LIMITES_MS = [5, 10, 25, 50, 100, 250, 500, 1_000, 2_500, 5_000];
 const PRAZO_VERIFICACAO_MS = 2_000;
+
+/** Prontidão detalhada, com o código HTTP correspondente. */
+export interface ProntidaoDetalhada {
+  readonly codigo: 200 | 503;
+  readonly corpo: ProntidaoResposta;
+}
+
+const detalhadas = new WeakMap<FastifyInstance, () => Promise<ProntidaoDetalhada>>();
+
+/**
+ * Avaliação detalhada da prontidão desta API, para a porta interna de métricas
+ * (`servirMetricas({ prontidao })`). Nunca é exposta pela porta pública.
+ */
+export function prontidaoDetalhadaDe(
+  app: FastifyInstance,
+): (() => Promise<ProntidaoDetalhada>) | undefined {
+  return detalhadas.get(app);
+}
 
 /**
  * Logs de acesso estruturados, correlação na resposta, métricas HTTP e a rota
@@ -82,7 +101,7 @@ export function registrarObservabilidade(app: FastifyInstance, obs: Observabilid
       obs.registrador.info('http_requisicao', campos);
   });
 
-  app.get('/saude/pronta', async (_request, reply) => {
+  const avaliar = async (): Promise<ProntidaoDetalhada> => {
     const verificacoes: Record<string, 'ok' | 'falha'> = {};
     await Promise.all(
       Object.entries(obs.verificacoes).map(async ([nome, verificar]) => {
@@ -92,14 +111,25 @@ export function registrarObservabilidade(app: FastifyInstance, obs: Observabilid
     const pronta = Object.values(verificacoes).every((v) => v === 'ok');
     if (!pronta)
       obs.registrador.aviso('prontidao_falhou', { verificacoes: falhasDe(verificacoes) });
-    const corpo: ProntidaoResposta = {
-      status: pronta ? 'pronta' : 'indisponivel',
-      ambiente: obs.gates.ambiente,
-      versao: obs.versao,
-      verificacoes,
-      escrita: { modo: modoDosGates(obs.gates), liberadas: [...obs.gates.liberadas] },
+    return {
+      codigo: pronta ? 200 : 503,
+      corpo: {
+        status: pronta ? 'pronta' : 'indisponivel',
+        ambiente: obs.gates.ambiente,
+        versao: obs.versao,
+        verificacoes,
+        escrita: { modo: modoDosGates(obs.gates), liberadas: [...obs.gates.liberadas] },
+      },
     };
-    return reply.code(pronta ? 200 : 503).send(corpo);
+  };
+  detalhadas.set(app, avaliar);
+
+  // Porta pública (M7): só o status. Ambiente, versão, verificações e gates de
+  // escrita ficam na porta interna; a falha continua no log `prontidao_falhou`.
+  app.get('/saude/pronta', async (_request, reply) => {
+    const { codigo, corpo } = await avaliar();
+    const publica: ProntidaoPublicaResposta = { status: corpo.status };
+    return reply.code(codigo).send(publica);
   });
 }
 
