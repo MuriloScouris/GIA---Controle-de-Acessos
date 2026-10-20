@@ -7,6 +7,7 @@ import { resolverSegredosDeArquivo } from '@gia/contratos/segredos';
 import { POLITICA_EXECUCAO_PADRAO, SISTEMAS, type PoliticaExecucao } from '@gia/dominio';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { contexto, paramsDocusign } from './teste/fabricas.js';
+import { penduradoAteAbortar } from './teste/pendurado.js';
 import {
   carregarSelecaoIntegracoes,
   criarIntegracoesDoAmbiente,
@@ -137,7 +138,8 @@ describe('política de timeout do DocuSign na composição (M5)', () => {
       GIA_DOCUSIGN_CONTA_ID: ID,
       GIA_DOCUSIGN_CHAVE_PRIVADA_ARQUIVO: chave,
     };
-  });
+    // Gerar a chave RSA é CPU puro e síncrono: sob carga passou dos 10 s do hook. Prazo só deste hook.
+  }, 60_000);
   afterAll(async () => {
     await rm(pasta, { recursive: true, force: true });
   });
@@ -151,15 +153,10 @@ describe('política de timeout do DocuSign na composição (M5)', () => {
   /** Transporte que nunca responde: só termina quando o sinal é abortado. */
   function transportePendurado() {
     const sinais: AbortSignal[] = [];
-    const enviar = vi.fn(
-      (_url: string | URL | Request, init?: RequestInit) =>
-        new Promise<Response>((_resolver, rejeitar) => {
-          if (init?.signal) sinais.push(init.signal);
-          init?.signal?.addEventListener('abort', () => rejeitar(init.signal?.reason), {
-            once: true,
-          });
-        }),
-    );
+    const enviar = vi.fn((_url: string | URL | Request, init?: RequestInit) => {
+      if (init?.signal) sinais.push(init.signal);
+      return penduradoAteAbortar(init?.signal);
+    });
     return { enviar, sinais };
   }
 

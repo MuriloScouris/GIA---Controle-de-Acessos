@@ -11,6 +11,7 @@ import { criarClienteDocusignReal, montarConectorDocusign } from './cliente.js';
 import { criarConectorDocusign } from '../adaptadores/docusign.js';
 import { criarFetchComPrazo, dentroDoPrazo } from '../prazo.js';
 import { contexto, contextoRevogacao, paramsDocusign } from '../teste/fabricas.js';
+import { penduradoAteAbortar } from '../teste/pendurado.js';
 
 const { privateKey, publicKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
 const ID = '00000000-0000-4000-8000-000000000001';
@@ -138,23 +139,19 @@ describe('configuração segura DocuSign', () => {
         ).toThrow('GIA_DOCUSIGN_TIMEOUT_MS');
     });
     it('o prazo do conector montado vem da configuração; o timeout de conexão do chamador prevalece', async () => {
-      const lento = vi.fn(
-        (_url: string | URL | Request, init?: RequestInit) =>
-          new Promise<Response>((_resolver, rejeitar) =>
-            init?.signal?.addEventListener('abort', () => rejeitar(init.signal?.reason), {
-              once: true,
-            }),
-          ),
+      const lento = vi.fn((_url: string | URL | Request, init?: RequestInit) =>
+        penduradoAteAbortar(init?.signal),
       );
-      const inicio = Date.now();
+      // Sem medir o relógio: se o timeout de conexão (50 ms) não prevalecesse, a chamada ficaria
+      // presa nos 60 s do conector e o próprio timeout do teste a derrubaria. A margem (5 s contra
+      // 50 ms) não depende de a máquina estar ou não sob carga.
       const conector = montarConectorDocusign(
-        { ...CONFIG, timeoutMs: 2_000 },
+        { ...CONFIG, timeoutMs: 60_000 },
         privateKey,
         { timeoutConexaoMs: 50 },
         { fetch: lento },
       );
       expect(await conector.testarConexao()).toMatchObject({ disponivel: false });
-      expect(Date.now() - inicio).toBeLessThan(1_500);
       expect(lento).toHaveBeenCalledTimes(1);
     });
   });
@@ -434,27 +431,34 @@ describe('DocuSign real: contrato HTTP e motor', () => {
   });
 
   it('M3: 2xx de criação recebido depois do prazo do motor vira desconhecido, nunca sem efeito', async () => {
-    const c = cenario();
-    // O destino processa o POST e responde 2xx, mas só depois do prazo do motor (300 ms).
-    const atrasado = vi.fn(async (entrada: string | URL | Request, init?: RequestInit) => {
-      const resposta = await c.responder(entrada, init);
-      if (init?.method === 'POST' && new URL(String(entrada)).pathname.endsWith('/users'))
-        await new Promise((resolver) => setTimeout(resolver, 450));
-      return resposta;
-    });
-    const cliente = criarClienteDocusignReal({ ...CONFIG, timeoutMs: 20_000 }, privateKey, {
-      fetch: criarFetchComPrazo(atrasado as unknown as typeof fetch),
-    });
-    const conector = criarConectorDocusign(cliente, { modo: 'real' });
-    const resultado = await dentroDoPrazo(300, () =>
-      conector.provisionar(contexto(paramsDocusign())),
-    );
-    expect(
-      c.chamadas.some((r) => r.init.method === 'POST' && r.url.pathname.endsWith('/users')),
-    ).toBe(true);
-    expect(resultado.efeito).toBe('desconhecido');
-    expect(resultado.efeito).not.toBe('semEfeito');
-    expect(resultado.codigo).toBe('INTEGRACAO_RESPOSTA_APOS_PRAZO');
+    // Relógio falso: o prazo do motor (300 ms) só vence quando o destino "demora", e não pelo tempo
+    // que a máquina leva para assinar o JWT ou preparar as chamadas anteriores sob carga.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      const c = cenario();
+      // O destino processa o POST e responde 2xx, mas só depois do prazo do motor.
+      const atrasado = vi.fn(async (entrada: string | URL | Request, init?: RequestInit) => {
+        const resposta = await c.responder(entrada, init);
+        if (init?.method === 'POST' && new URL(String(entrada)).pathname.endsWith('/users'))
+          vi.setSystemTime(Date.now() + 450);
+        return resposta;
+      });
+      const cliente = criarClienteDocusignReal({ ...CONFIG, timeoutMs: 20_000 }, privateKey, {
+        fetch: criarFetchComPrazo(atrasado as unknown as typeof fetch),
+      });
+      const conector = criarConectorDocusign(cliente, { modo: 'real' });
+      const resultado = await dentroDoPrazo(300, () =>
+        conector.provisionar(contexto(paramsDocusign())),
+      );
+      expect(
+        c.chamadas.some((r) => r.init.method === 'POST' && r.url.pathname.endsWith('/users')),
+      ).toBe(true);
+      expect(resultado.efeito).toBe('desconhecido');
+      expect(resultado.efeito).not.toBe('semEfeito');
+      expect(resultado.codigo).toBe('INTEGRACAO_RESPOSTA_APOS_PRAZO');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('M3: a mesma criação com a resposta dentro do prazo é confirmada', async () => {
@@ -473,11 +477,7 @@ describe('DocuSign real: contrato HTTP e motor', () => {
     const c = cenario({ timeoutMs: 30 });
     c.transporte.mockImplementation(async (url, init) => {
       if (String(url).includes('/users?'))
-        return new Promise((_resolver, rejeitar) => {
-          init?.signal?.addEventListener('abort', () => rejeitar(new Error('timeout')), {
-            once: true,
-          });
-        });
+        return penduradoAteAbortar(init?.signal, () => new Error('timeout'));
       return c.responder(url, init);
     });
     await expect(c.cliente.criarUsuario(paramsDocusign())).rejects.toMatchObject({
@@ -502,7 +502,9 @@ describe('integração HTTP local com fetch real', () => {
   });
 
   it('percorre OAuth e API por sockets reais e traduz a falha do fornecedor', async () => {
-    const c = cenario();
+    // Sockets reais e JWT assinado: sob carga o fluxo leva mais que os 2 s do padrão dos testes. O
+    // prazo não é o assunto aqui (os de timeout estão acima), então fica folgado.
+    const c = cenario({ timeoutMs: 30_000 });
     servidor = createServer(async (req, res) => {
       const partes: Buffer[] = [];
       for await (const parte of req) partes.push(Buffer.from(parte));
@@ -518,7 +520,7 @@ describe('integração HTTP local com fetch real', () => {
     await once(servidor, 'listening');
     const endereco = servidor.address();
     if (!endereco || typeof endereco === 'string') throw new Error('Servidor indisponível');
-    const cliente = criarClienteDocusignReal(CONFIG, privateKey, {
+    const cliente = criarClienteDocusignReal({ ...CONFIG, timeoutMs: 30_000 }, privateKey, {
       fetch: (url, init) =>
         fetch(
           `http://127.0.0.1:${endereco.port}${new URL(String(url)).pathname}${new URL(String(url)).search}`,

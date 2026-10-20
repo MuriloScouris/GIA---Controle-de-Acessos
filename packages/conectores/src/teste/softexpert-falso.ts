@@ -1,5 +1,6 @@
 import { escaparXml as x } from '../escape.js';
 import { descendente, lerXml, type ElementoXml } from '../softexpert/xml.js';
+import { penduradoAteAbortar } from './pendurado.js';
 
 export interface UsuarioSeFalso {
   iduser: string;
@@ -59,9 +60,7 @@ export class SoftexpertFalso {
     const programada = this.programadas.get(operacao.nome)?.shift();
     if (programada !== undefined) {
       if (programada === 'pendurar') {
-        return new Promise<Response>((_, rejeitar) => {
-          init?.signal?.addEventListener('abort', () => rejeitar(init.signal!.reason));
-        });
+        return penduradoAteAbortar(init?.signal);
       }
       if (programada instanceof Error) throw programada;
       return typeof programada === 'function' ? programada() : programada;
