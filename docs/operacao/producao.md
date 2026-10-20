@@ -150,10 +150,16 @@ pnpm --filter @gia/api smoke
 Confere vivacidade, a prontidão pública (só o status: qualquer detalhe a mais
 é falha), a prontidão detalhada na porta interna (com o modo de escrita
 esperado), cabeçalhos de segurança e correlação, que dados exigem sessão, que
-o login simulado não existe em produção e as métricas. A prontidão detalhada é
-lida em `/saude/pronta` na mesma origem de `GIA_SMOKE_METRICAS_URL`; sem essa
-variável, `GIA_SMOKE_MODO_ESPERADO` falha, porque a porta pública não informa
-a escrita. Sai 1 se algo falhar.
+o login simulado não existe em produção e as métricas. Sai 1 se algo falhar.
+
+`GIA_SMOKE_METRICAS_URL` é **obrigatória**, com ou sem
+`GIA_SMOKE_MODO_ESPERADO`: só a porta interna informa ambiente, verificações e
+escrita. Ela precisa ser `http://` de loopback (`127.0.0.1`, `localhost` ou
+`[::1]`) com caminho `/metrics` (ou `/metricas`), sem credenciais, query nem
+fragmento. Ausente ou fora disso, `prontidao_interna` e `metricas` falham sem
+fazer nenhuma chamada, para que o smoke nunca certifique os gates de outro
+servidor. Rode-o no host da API. A prontidão detalhada é lida em
+`/saude/pronta` na mesma origem, e redirects da porta interna são recusados.
 
 Os conectores têm homologação somente leitura própria, em `@gia/conectores`:
 `ad:verificar`, `m365:verificar`, `docusign:verificar` e `softexpert:verificar`.
