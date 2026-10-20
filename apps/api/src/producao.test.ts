@@ -16,7 +16,7 @@ import { describe, expect, it } from 'vitest';
 import { CABECALHO_CORRELACAO, prontidaoDetalhadaDe } from './http/observabilidade.js';
 import { criarAppDoAmbiente } from './index.js';
 import { criarPersistenciaEmMemoria } from './persistencia/memoria.js';
-import { prepararAmbienteApi } from './producao.js';
+import { prepararAmbienteApi, proxiesConfiaveis } from './producao.js';
 import { montarApi } from './teste/apoio.js';
 
 function variaveis(acao: () => unknown): readonly string[] {
@@ -148,6 +148,52 @@ describe('configuração segura por ambiente', () => {
       liberadas: [],
     });
     await app.close();
+  });
+});
+
+describe('proxies confiáveis do limite de login (GIA_API_PROXY_CONFIAVEL, M8)', () => {
+  it('padrão: nenhum proxy confiável, então o X-Forwarded-For é ignorado', () => {
+    expect(proxiesConfiaveis(undefined)).toEqual([]);
+    expect(proxiesConfiaveis('  ')).toEqual([]);
+    expect(prepararAmbienteApi({}, () => undefined).proxiesConfiaveis).toEqual([]);
+  });
+
+  it('aceita IPs e CIDRs, v4 e v6, e leva a lista ao ambiente da API', () => {
+    expect(proxiesConfiaveis('127.0.0.1, ::1,10.0.0.0/8 ,2001:db8::/32')).toEqual([
+      '127.0.0.1',
+      '::1',
+      '10.0.0.0/8',
+      '2001:db8::/32',
+    ]);
+    const ambiente = prepararAmbienteApi({ GIA_API_PROXY_CONFIAVEL: '127.0.0.1' }, () => undefined);
+    expect(ambiente.proxiesConfiaveis).toEqual(['127.0.0.1']);
+  });
+
+  it('recusa contagem de saltos, nomes, palavras-chave e redes largas demais', () => {
+    for (const ruim of [
+      '1',
+      'loopback',
+      'proxy.interno',
+      '127.0.0.1,',
+      '0.0.0.0/0',
+      '::/0',
+      '10.0.0.0/7',
+      '10.0.0.0/33',
+      '2001:db8::/15',
+      '10.0.0.0/8/8',
+      '10.0.0.0/x',
+      '999.1.1.1',
+    ]) {
+      expect(proxiesConfiaveis(ruim), ruim).toBe('invalido');
+    }
+  });
+
+  it('valor inválido derruba a partida citando só o nome da variável', () => {
+    expect(
+      variaveis(() =>
+        prepararAmbienteApi({ GIA_API_PROXY_CONFIAVEL: '0.0.0.0/0' }, () => undefined),
+      ),
+    ).toEqual(['GIA_API_PROXY_CONFIAVEL']);
   });
 });
 

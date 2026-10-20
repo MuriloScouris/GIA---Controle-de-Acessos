@@ -9,11 +9,12 @@ import {
   type CryptoKey,
 } from 'jose';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { criarApp, type Autenticacao } from './app.js';
+import { criarApp, type Autenticacao, type OpcoesApp } from './app.js';
 import { criarAppDoAmbiente } from './index.js';
 import { COOKIE_ESTADO_OIDC, type EventoLogin } from './http/rotas-oidc.js';
 import { COOKIE_SESSAO } from './http/protocolo.js';
 import { autenticacaoDoAmbiente } from './sessao/autenticacao-ambiente.js';
+import { LIMITES_PADRAO } from './sessao/logins-pendentes.js';
 import {
   carregarConfiguracaoOidc,
   criarClienteOidc,
@@ -70,6 +71,7 @@ async function idToken(
 function montar(
   gerarToken: (nonce: string) => Promise<string> | string,
   extra: Partial<ConfiguracaoOidc> = {},
+  opcoesApp: Partial<OpcoesApp> = {},
 ) {
   const pedidosDeToken: URLSearchParams[] = [];
   const eventos: EventoLogin[] = [];
@@ -102,7 +104,7 @@ function montar(
     },
     auditarLogin: (e) => eventos.push(e),
   };
-  const app = criarApp({ ambiente: 'producao', autenticacao });
+  const app = criarApp({ ambiente: 'producao', autenticacao, ...opcoesApp });
   return { app, pedidosDeToken, eventos };
 }
 
@@ -272,7 +274,7 @@ describe('login de produção com Entra ID (Authorization Code + PKCE)', () => {
     });
     expect(local.searchParams.get('state')).toMatch(/^[\w-]{43}$/);
     expect(local.searchParams.get('nonce')).toMatch(/^[\w-]{43}$/);
-    expect(linhaEstado).toMatch(/HttpOnly; Secure; SameSite=Lax; Max-Age=600$/);
+    expect(linhaEstado).toMatch(/HttpOnly; Secure; SameSite=Lax; Max-Age=300$/);
   });
 
   it('retorno válido troca o código com o verificador PKCE, valida o token e abre a sessão', async () => {
@@ -595,6 +597,219 @@ describe('modo de login pelo ambiente', () => {
     });
     expect(res.statusCode).toBe(404);
     expect(res.headers['set-cookie']).toBeUndefined();
+    await app.close();
+  });
+});
+
+describe('limite de logins pendentes no /sessao/oidc/entrar (M8)', () => {
+  const T0 = Date.parse('2026-03-02T12:00:00Z');
+  const relogioFalso = () => {
+    const estado = { t: T0 };
+    return { estado, relogio: { agora: () => new Date(estado.t).toISOString() } };
+  };
+  const ENTRA_ID = 'https://login.microsoftonline.com/';
+  const LOGIN_INDISPONIVEL = '/login?erro=LOGIN_INDISPONIVEL';
+  const gerar = (nonce: string) => idToken({ nonce, groups: [GRUPO_REVISORES] });
+
+  /** Um `entrar` vindo de um IP; `xff` simula o cabeçalho de um proxy ou de um cliente malicioso. */
+  const entrarDe = (app: ReturnType<typeof montar>['app'], ip: string, xff?: string) =>
+    app.inject({
+      method: 'GET',
+      url: '/sessao/oidc/entrar',
+      remoteAddress: ip,
+      headers: xff === undefined ? {} : { 'x-forwarded-for': xff },
+    });
+  type Resposta = { statusCode: number; headers: Record<string, unknown> };
+  const aceito = (res: Resposta) =>
+    res.statusCode === 302 && String(res.headers['location']).startsWith(ENTRA_ID);
+  const recusado = (res: Resposta) =>
+    res.statusCode === 303 && res.headers['location'] === LOGIN_INDISPONIVEL;
+
+  it('limita os inícios por origem: recusa igual para todos os motivos, sem detalhe e sem IP', async () => {
+    const { estado, relogio } = relogioFalso();
+    const { app, eventos } = montar(
+      gerar,
+      {},
+      { relogio, limitesLoginOidc: { ...LIMITES_PADRAO, iniciosPorJanela: 3 } },
+    );
+    for (let i = 0; i < 3; i += 1) expect(aceito(await entrarDe(app, '198.51.100.7'))).toBe(true);
+
+    const barrado = await entrarDe(app, '198.51.100.7');
+    expect(recusado(barrado)).toBe(true);
+    expect(barrado.body).toBe('');
+    // Só o cookie de estado é zerado: nada de novo estado, e nada que revele limite ou contagem.
+    expect(barrado.headers['set-cookie']).toMatch(
+      new RegExp(`^${COOKIE_ESTADO_OIDC}=; .*Max-Age=0$`),
+    );
+    expect(Object.keys(barrado.headers).filter((h) => /retry|limit|rate/i.test(h))).toEqual([]);
+    expect(eventos.filter((e) => e.evento === 'login_iniciado')).toHaveLength(3);
+    expect(eventos.at(-1)).toEqual({ evento: 'login_recusado', codigo: 'LOGIN_LIMITE_ORIGEM' });
+    expect(JSON.stringify(eventos)).not.toContain('198.51.100.7');
+
+    // Outra origem segue entrando, e a barrada volta depois da janela.
+    expect(aceito(await entrarDe(app, '198.51.100.8'))).toBe(true);
+    estado.t += 61_000;
+    expect(aceito(await entrarDe(app, '198.51.100.7'))).toBe(true);
+    await app.close();
+  });
+
+  it('limita o total de estados pendentes e a vaga volta quando um login conclui', async () => {
+    const { relogio } = relogioFalso();
+    const { app, eventos } = montar(
+      gerar,
+      {},
+      {
+        relogio,
+        limitesLoginOidc: {
+          ...LIMITES_PADRAO,
+          maximoPendentes: 2,
+          maximoPorOrigem: 100,
+          iniciosPorJanela: 100,
+        },
+      },
+    );
+    await entrar(app);
+    const segundo = await entrar(app);
+    const cheio = await app.inject({ method: 'GET', url: '/sessao/oidc/entrar' });
+    expect(recusado(cheio)).toBe(true);
+    expect(eventos.at(-1)).toEqual({ evento: 'login_recusado', codigo: 'LOGIN_LIMITE_CAPACIDADE' });
+
+    // O fluxo permitido continua valendo com o teto cheio: o último login iniciado conclui...
+    const concluido = await retornar(app, `code=x&state=${segundo.estado}`, segundo.estado);
+    expect(concluido.statusCode).toBe(303);
+    expect(concluido.headers.location).toBe('/pedidos');
+    // ...e libera a vaga.
+    expect(aceito(await app.inject({ method: 'GET', url: '/sessao/oidc/entrar' }))).toBe(true);
+    await app.close();
+  });
+
+  it('limita os estados pendentes por origem, sem afetar as outras', async () => {
+    const { relogio } = relogioFalso();
+    const { app } = montar(
+      gerar,
+      {},
+      {
+        relogio,
+        limitesLoginOidc: { ...LIMITES_PADRAO, maximoPorOrigem: 2, iniciosPorJanela: 100 },
+      },
+    );
+    expect(aceito(await entrarDe(app, '198.51.100.7'))).toBe(true);
+    expect(aceito(await entrarDe(app, '198.51.100.7'))).toBe(true);
+    expect(recusado(await entrarDe(app, '198.51.100.7'))).toBe(true);
+    expect(aceito(await entrarDe(app, '198.51.100.9'))).toBe(true);
+    await app.close();
+  });
+
+  it('o estado expira em 5 minutos: vale até o fim da validade e depois é recusado sem trocar código', async () => {
+    const { estado: relogioEstado, relogio } = relogioFalso();
+    const { app, pedidosDeToken, eventos } = montar(gerar, {}, { relogio });
+
+    const dentro = await entrar(app);
+    relogioEstado.t += 299_000;
+    expect((await retornar(app, `code=x&state=${dentro.estado}`, dentro.estado)).statusCode).toBe(
+      303,
+    );
+    expect(pedidosDeToken).toHaveLength(1);
+
+    const vencido = await entrar(app);
+    relogioEstado.t += 300_000;
+    const res = await retornar(app, `code=x&state=${vencido.estado}`, vencido.estado);
+    expect(res.headers.location).toBe('/login?erro=LOGIN_ESTADO_INVALIDO');
+    expect(pedidosDeToken).toHaveLength(1);
+    expect(eventos.at(-1)).toEqual({ evento: 'login_recusado', codigo: 'LOGIN_ESTADO_INVALIDO' });
+    // Vencido ou não, o estado é de uso único.
+    expect(
+      (await retornar(app, `code=x&state=${vencido.estado}`, vencido.estado)).headers.location,
+    ).toBe('/login?erro=LOGIN_ESTADO_INVALIDO');
+    await app.close();
+  });
+
+  it('estados vencidos são varridos: a vaga por origem volta sem nenhum retorno', async () => {
+    const { estado, relogio } = relogioFalso();
+    const { app } = montar(
+      gerar,
+      {},
+      {
+        relogio,
+        limitesLoginOidc: { ...LIMITES_PADRAO, maximoPorOrigem: 2, iniciosPorJanela: 100 },
+      },
+    );
+    await entrarDe(app, '198.51.100.7');
+    await entrarDe(app, '198.51.100.7');
+    expect(recusado(await entrarDe(app, '198.51.100.7'))).toBe(true);
+    estado.t += 300_000;
+    expect(aceito(await entrarDe(app, '198.51.100.7'))).toBe(true);
+    expect(aceito(await entrarDe(app, '198.51.100.7'))).toBe(true);
+    await app.close();
+  });
+
+  it('X-Forwarded-For é ignorado por padrão: forjar o cabeçalho não escapa do limite', async () => {
+    const { app } = montar(
+      gerar,
+      {},
+      { limitesLoginOidc: { ...LIMITES_PADRAO, iniciosPorJanela: 2 } },
+    );
+    expect(aceito(await entrarDe(app, '198.51.100.7', '203.0.113.1'))).toBe(true);
+    expect(aceito(await entrarDe(app, '198.51.100.7', '203.0.113.2'))).toBe(true);
+    expect(recusado(await entrarDe(app, '198.51.100.7', '203.0.113.3'))).toBe(true);
+    await app.close();
+  });
+
+  it('com proxy confiável (GIA_API_PROXY_CONFIAVEL), cada cliente do proxy tem a sua origem', async () => {
+    const { app } = montar(
+      gerar,
+      {},
+      {
+        proxiesConfiaveis: ['127.0.0.1'],
+        limitesLoginOidc: { ...LIMITES_PADRAO, iniciosPorJanela: 2 },
+      },
+    );
+    // Tudo chega do proxy (127.0.0.1); o cliente real vem no cabeçalho que o proxy acrescenta.
+    for (let i = 0; i < 2; i += 1) {
+      expect(aceito(await entrarDe(app, '127.0.0.1', '203.0.113.1'))).toBe(true);
+    }
+    expect(recusado(await entrarDe(app, '127.0.0.1', '203.0.113.1'))).toBe(true);
+    // Outro cliente atrás do mesmo proxy não é barrado pelo abuso do primeiro.
+    expect(aceito(await entrarDe(app, '127.0.0.1', '203.0.113.2'))).toBe(true);
+    // Um cabeçalho forjado pelo cliente vem antes do que o proxy acrescentou e não conta.
+    expect(recusado(await entrarDe(app, '127.0.0.1', '10.9.9.9, 203.0.113.1'))).toBe(true);
+    await app.close();
+  });
+
+  it('com proxy confiável configurado, o cabeçalho de quem não é o proxy continua ignorado', async () => {
+    const { app } = montar(
+      gerar,
+      {},
+      {
+        proxiesConfiaveis: ['127.0.0.1'],
+        limitesLoginOidc: { ...LIMITES_PADRAO, iniciosPorJanela: 2 },
+      },
+    );
+    expect(aceito(await entrarDe(app, '198.51.100.7', '203.0.113.1'))).toBe(true);
+    expect(aceito(await entrarDe(app, '198.51.100.7', '203.0.113.2'))).toBe(true);
+    expect(recusado(await entrarDe(app, '198.51.100.7', '203.0.113.3'))).toBe(true);
+    await app.close();
+  });
+
+  it('IPv6 do mesmo /64 divide a origem', async () => {
+    const { app } = montar(
+      gerar,
+      {},
+      { limitesLoginOidc: { ...LIMITES_PADRAO, iniciosPorJanela: 2 } },
+    );
+    expect(aceito(await entrarDe(app, '2001:db8:1:2::1'))).toBe(true);
+    expect(aceito(await entrarDe(app, '2001:db8:1:2:ffff::9'))).toBe(true);
+    expect(recusado(await entrarDe(app, '2001:db8:1:2:abcd::5'))).toBe(true);
+    expect(aceito(await entrarDe(app, '2001:db8:1:3::1'))).toBe(true);
+    await app.close();
+  });
+
+  it('com os limites padrão, o uso normal (vários logins de uma origem) não é barrado', async () => {
+    const { app } = montar(gerar);
+    for (let i = 0; i < 10; i += 1) {
+      const { estado } = await entrar(app);
+      expect((await retornar(app, `code=x&state=${estado}`, estado)).statusCode).toBe(303);
+    }
     await app.close();
   });
 });

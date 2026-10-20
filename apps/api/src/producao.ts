@@ -1,3 +1,4 @@
+import { isIP } from 'node:net';
 import {
   ErroConfiguracao,
   RegistroMetricas,
@@ -20,6 +21,34 @@ import { VARIAVEL_TLS_NODE, exigirTlsVerificado } from '@gia/contratos';
 
 export const VARIAVEL_METRICAS_PORTA = 'GIA_METRICAS_PORTA';
 export const VARIAVEL_VERSAO = 'GIA_VERSAO';
+/** Proxies reversos em que a API confia para ler o IP do cliente em `X-Forwarded-For` (M8). */
+export const VARIAVEL_PROXY_CONFIAVEL = 'GIA_API_PROXY_CONFIAVEL';
+
+/**
+ * `GIA_API_PROXY_CONFIAVEL`: lista, separada por vírgula, de IPs ou CIDRs dos proxies que ficam na
+ * frente da API (por exemplo `127.0.0.1`). O cabeçalho só vale quando a conexão vem de um deles:
+ * de qualquer outro cliente ele é ignorado, porque seria forjável. Vazio (padrão) = nenhum, e a
+ * origem é o endereço do socket, que atrás de um proxy é o do próprio proxy. Redes muito largas
+ * (que confiariam em quase todo mundo) são recusadas.
+ */
+export function proxiesConfiaveis(valor: string | undefined): readonly string[] | 'invalido' {
+  const texto = valor?.trim() ?? '';
+  if (texto === '') return [];
+  const lista: string[] = [];
+  for (const bruto of texto.split(',')) {
+    const entrada = bruto.trim();
+    const [ip, prefixo, ...resto] = entrada.split('/');
+    const versao = isIP(ip ?? '');
+    if (versao === 0 || resto.length > 0) return 'invalido';
+    if (prefixo !== undefined) {
+      const bits = /^\d{1,3}$/.test(prefixo) ? Number(prefixo) : NaN;
+      const [minimo, maximo] = versao === 4 ? [8, 32] : [16, 128];
+      if (!(bits >= minimo && bits <= maximo)) return 'invalido';
+    }
+    lista.push(entrada);
+  }
+  return lista;
+}
 
 /** O que a API precisa do ambiente, já validado. */
 export interface AmbienteApi {
@@ -30,6 +59,8 @@ export interface AmbienteApi {
   readonly metricas: RegistroMetricas;
   readonly versao: string;
   readonly portaMetricas: number | null;
+  /** Proxies confiáveis na frente da API (`GIA_API_PROXY_CONFIAVEL`); vazio = nenhum. */
+  readonly proxiesConfiaveis: readonly string[];
   readonly urlBanco: string | null;
 }
 
@@ -63,6 +94,8 @@ export function prepararAmbienteApi(
   const gates = registrar(() => carregarGatesDeEscrita(env));
   const porta = portaDeMetricas(env[VARIAVEL_METRICAS_PORTA]);
   if (porta === 'invalida') erros.add(VARIAVEL_METRICAS_PORTA);
+  const proxies = proxiesConfiaveis(env[VARIAVEL_PROXY_CONFIAVEL]);
+  if (proxies === 'invalido') erros.add(VARIAVEL_PROXY_CONFIAVEL);
   const url = env[VARIAVEL_URL_BANCO]?.trim() ?? '';
   if (config !== null && gates !== null && url === '') {
     if (config.ambiente === 'producao' || gates.escritaExterna) erros.add(VARIAVEL_URL_BANCO);
@@ -100,6 +133,7 @@ export function prepararAmbienteApi(
     metricas: new RegistroMetricas(),
     versao,
     portaMetricas: porta === 'invalida' ? null : porta,
+    proxiesConfiaveis: proxies === 'invalido' ? [] : proxies,
     urlBanco: url === '' ? null : url,
   };
 }

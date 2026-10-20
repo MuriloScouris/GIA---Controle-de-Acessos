@@ -1,6 +1,12 @@
 import { timingSafeEqual } from 'node:crypto';
 import type { FastifyInstance, FastifyReply } from 'fastify';
-import { ErroLogin, retornoLocal, type ClienteOidc, type LoginPendente } from '../sessao/oidc.js';
+import {
+  LIMITES_PADRAO,
+  LoginsPendentes,
+  origemDe,
+  type LimitesLoginsPendentes,
+} from '../sessao/logins-pendentes.js';
+import { ErroLogin, retornoLocal, type ClienteOidc } from '../sessao/oidc.js';
 import {
   COOKIE_SESSAO,
   enviarErro,
@@ -14,10 +20,6 @@ export const COOKIE_ESTADO_OIDC = 'gia_oidc_estado';
 /** Página de login da interface; o erro vai como código estável, nunca como texto do provedor. */
 export const PAGINA_LOGIN = '/login';
 
-const VALIDADE_PENDENTE_MS = 10 * 60 * 1000;
-/** Teto de logins pendentes: abrir o fluxo em massa não esgota a memória do processo. */
-const MAXIMO_PENDENTES = 5_000;
-
 /** Evento de auditoria do login: sem token, código, e-mail ou nome. */
 export interface EventoLogin {
   readonly evento: 'login_iniciado' | 'login_concluido' | 'login_recusado' | 'logout';
@@ -29,6 +31,8 @@ export interface EventoLogin {
 export interface DependenciasOidcHttp extends DependenciasHttp {
   readonly oidc: ClienteOidc;
   readonly auditarLogin: (evento: EventoLogin) => void;
+  /** Limites dos logins pendentes (M8); os testes reduzem para exercitar o teto. */
+  readonly limites?: LimitesLoginsPendentes;
 }
 
 function cookieEstado(valor: string, maxAge: number): string {
@@ -55,22 +59,28 @@ function paraLogin(reply: FastifyReply, codigo: string): FastifyReply {
 
 /** Rotas do login de produção (Entra ID/OIDC). */
 export function registrarRotasOidc(app: FastifyInstance, deps: DependenciasOidcHttp): void {
-  const pendentes = new Map<string, { pendente: LoginPendente; expiraEm: number }>();
   const agora = () => Date.parse(deps.relogio.agora());
-  const limpar = () => {
-    const t = agora();
-    for (const [estado, { expiraEm }] of pendentes) if (expiraEm <= t) pendentes.delete(estado);
-  };
+  const limites = deps.limites ?? LIMITES_PADRAO;
+  const pendentes = new LoginsPendentes(agora, limites);
 
   app.get('/sessao/oidc/entrar', async (request, reply) => {
-    limpar();
-    if (pendentes.size >= MAXIMO_PENDENTES) return paraLogin(reply, 'LOGIN_INDISPONIVEL');
+    const origem = origemDe(request.ip);
+    const reserva = pendentes.reservar(origem);
+    if (!reserva.ok) {
+      // Mesma resposta para qualquer motivo: nada de contagem, limite ou origem para quem abusa.
+      // O motivo vai só para a auditoria, sem IP.
+      deps.auditarLogin({
+        evento: 'login_recusado',
+        codigo: reserva.motivo === 'origem' ? 'LOGIN_LIMITE_ORIGEM' : 'LOGIN_LIMITE_CAPACIDADE',
+      });
+      return paraLogin(reply, 'LOGIN_INDISPONIVEL');
+    }
     const retorno = retornoLocal((request.query as Record<string, unknown>)['retorno']);
     const { url, pendente } = deps.oidc.iniciar(retorno);
-    pendentes.set(pendente.estado, { pendente, expiraEm: agora() + VALIDADE_PENDENTE_MS });
+    pendentes.guardar(origem, pendente);
     deps.auditarLogin({ evento: 'login_iniciado' });
     return reply
-      .header('set-cookie', cookieEstado(pendente.estado, VALIDADE_PENDENTE_MS / 1000))
+      .header('set-cookie', cookieEstado(pendente.estado, limites.validadeMs / 1000))
       .redirect(url, 302);
   });
 
@@ -78,10 +88,8 @@ export function registrarRotasOidc(app: FastifyInstance, deps: DependenciasOidcH
     const q = request.query as Record<string, unknown>;
     const estado = typeof q['state'] === 'string' ? q['state'] : '';
     const doCookie = lerCookie(request.headers.cookie, COOKIE_ESTADO_OIDC) ?? '';
-    limpar();
-    const guardado = estado === '' ? undefined : pendentes.get(estado);
-    // Uso único: o estado sai da lista aconteça o que acontecer.
-    if (estado !== '') pendentes.delete(estado);
+    // Uso único: o estado sai da lista aconteça o que acontecer; vencido não vale.
+    const guardado = estado === '' ? undefined : pendentes.consumir(estado);
     const recusar = (codigo: string) => {
       deps.auditarLogin({ evento: 'login_recusado', codigo });
       return paraLogin(reply, codigo);
@@ -96,7 +104,7 @@ export function registrarRotasOidc(app: FastifyInstance, deps: DependenciasOidcH
 
     let sessao;
     try {
-      sessao = await deps.oidc.concluir(codigo, guardado.pendente);
+      sessao = await deps.oidc.concluir(codigo, guardado);
     } catch (erro) {
       return recusar(erro instanceof ErroLogin ? erro.codigo : 'LOGIN_INDISPONIVEL');
     }
@@ -111,7 +119,7 @@ export function registrarRotasOidc(app: FastifyInstance, deps: DependenciasOidcH
     });
     return reply
       .header('set-cookie', [cookieEstado('', 0), cookieSessao(aberta.id, segundos)])
-      .redirect(guardado.pendente.retorno, 303);
+      .redirect(guardado.retorno, 303);
   });
 
   /** Logout: encerra a sessão local sempre, mesmo que o Entra ID não responda depois. */

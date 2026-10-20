@@ -24,6 +24,7 @@ import { registrarObservabilidade, type VerificacoesProntidao } from './http/obs
 import { enviarFalha } from './http/protocolo.js';
 import { registrarRotasOidc, type EventoLogin } from './http/rotas-oidc.js';
 import { registrarRotas, registrarRotasDeSessaoSimulada } from './http/rotas.js';
+import type { LimitesLoginsPendentes } from './sessao/logins-pendentes.js';
 import type { ClienteOidc } from './sessao/oidc.js';
 import { criarPersistenciaEmMemoria } from './persistencia/memoria.js';
 import { criarSessoesSimuladas, type SessoesSimuladas } from './sessao/sessoes-simuladas.js';
@@ -53,6 +54,14 @@ export interface OpcoesApp {
    * sessão simulada.
    */
   readonly autenticacao?: Autenticacao;
+  /**
+   * IPs ou CIDRs dos proxies reversos confiáveis (`GIA_API_PROXY_CONFIAVEL`); padrão: nenhum. Só
+   * conexões vindas deles têm o `X-Forwarded-For` aceito para a origem do cliente, usada no limite
+   * do login OIDC (M8).
+   */
+  readonly proxiesConfiaveis?: readonly string[];
+  /** Limites dos logins OIDC pendentes; os testes reduzem para exercitar o teto. */
+  readonly limitesLoginOidc?: LimitesLoginsPendentes;
 }
 
 export type Autenticacao =
@@ -105,7 +114,14 @@ export function criarApp(opcoes: OpcoesApp = {}): FastifyInstance {
   };
 
   // O ID de correlação é sempre gerado aqui; cabeçalho do cliente não é aceito.
-  const app = Fastify({ logger: false, requestIdHeader: false, genReqId: () => randomUUID() });
+  const app = Fastify({
+    logger: false,
+    requestIdHeader: false,
+    genReqId: () => randomUUID(),
+    // Sem proxy confiável o X-Forwarded-For é ignorado: qualquer cliente poderia forjá-lo. Uma
+    // contagem de saltos não serve: o Fastify a trata como "não confiar em ninguém".
+    trustProxy: opcoes.proxiesConfiaveis?.length ? [...opcoes.proxiesConfiaveis] : false,
+  });
 
   app.addHook('onSend', async (_request, reply, payload) => {
     reply.header('cache-control', 'no-store');
@@ -152,6 +168,7 @@ export function criarApp(opcoes: OpcoesApp = {}): FastifyInstance {
       ...deps,
       oidc: autenticacao.cliente,
       auditarLogin: autenticacao.auditarLogin ?? (() => undefined),
+      ...(opcoes.limitesLoginOidc === undefined ? {} : { limites: opcoes.limitesLoginOidc }),
     });
   }
   app.get('/sessao/modo', async (): Promise<ModoSessaoResposta> => ({ modo: autenticacao.modo }));
