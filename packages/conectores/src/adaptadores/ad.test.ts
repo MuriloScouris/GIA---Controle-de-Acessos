@@ -7,7 +7,7 @@ import {
   type ResultadoOperacao,
 } from '@gia/dominio';
 import { describe, expect, it } from 'vitest';
-import { AdSimulado } from '../simuladores/ad.js';
+import { AdSimulado, type EstadoInicialAd } from '../simuladores/ad.js';
 import {
   CADASTROS,
   CPF_MARIA,
@@ -163,6 +163,113 @@ describe('conector AD: retomada em cada fronteira do provisionamento (M2)', () =
     };
     const r = await conector.provisionar(contexto(paramsAd()));
     expect(r).toMatchObject({ efeito: 'desconhecido', etapa: 'habilitarConta' });
+  });
+});
+
+describe('conector AD: grupos homônimos em OUs distintas, comparados por DN (DEV-305)', () => {
+  const VPN_TI = 'CN=GG-VPN,OU=TI,DC=exemplo,DC=local';
+  const VPN_RH = 'CN=GG-VPN,OU=RH,DC=exemplo,DC=local';
+  const TEC = 'CN=GG-Tecnologia,OU=TI,DC=exemplo,DC=local';
+
+  function montarHomonimos(contas: EstadoInicialAd['contas'] = []) {
+    return montar({ grupos: [VPN_TI, VPN_RH, TEC], contas });
+  }
+
+  const contaExistente = (gruposDn: readonly string[]) => ({
+    guid: 'ad-guid-existente',
+    login: 'maria.souza',
+    cpf: CPF_MARIA,
+    email: 'maria.souza@exemplo.com.br',
+    habilitada: true,
+    ou: OU_PADRAO,
+    grupos: [],
+    gruposDn,
+  });
+
+  it('só o grupo configurado (pelo DN) é aplicado; o homônimo da outra OU fica de fora', async () => {
+    const { simulador, conector } = montarHomonimos();
+    const r = await conector.provisionar(contexto(paramsAd({ grupos: [VPN_TI, TEC] })));
+    expect(r).toMatchObject({ efeito: 'confirmado', etapa: 'adicionarGrupos' });
+    expect(simulador.conta('maria.souza')?.gruposDn).toEqual([VPN_TI, TEC]);
+    expect(simulador.conta('maria.souza')?.gruposDn).not.toContain(VPN_RH);
+  });
+
+  it('ser membro do homônimo não conta como presente na conferência', async () => {
+    const { conector } = montarHomonimos([contaExistente([VPN_RH, TEC])]);
+    const params = paramsAd({ grupos: [VPN_TI, TEC] });
+    const existencia = await conector.conferirExistencia(contexto(params));
+    expect(existencia.etapaComprovada).toBe('habilitarConta');
+    expect(existencia.acessosEncontrados).toEqual([`grupo:${TEC}`, `grupo:${VPN_RH}`]);
+    expect(avaliarExistencia(existencia, params)).toEqual({
+      situacao: 'incompleto',
+      faltantes: [`grupo:${VPN_TI.toLowerCase()}`],
+    });
+  });
+
+  it('com o homônimo já na conta, a retomada adiciona só o configurado', async () => {
+    const { simulador, conector } = montarHomonimos([contaExistente([VPN_RH])]);
+    const r = await conector.provisionar(
+      contexto(paramsAd({ grupos: [VPN_TI] }), { etapaInicial: 'adicionarGrupos' }),
+    );
+    expect(r).toMatchObject({ efeito: 'confirmado' });
+    expect(simulador.roteiro.chamadas('adicionarAoGrupo')).toBe(1);
+    expect(simulador.conta('maria.souza')?.gruposDn).toEqual([VPN_RH, VPN_TI]);
+  });
+
+  it('retomada da M2 não reenvia o grupo já aplicado (comparação por DN)', async () => {
+    const { simulador, conector } = montarHomonimos();
+    simulador.roteiro
+      .programar('adicionarAoGrupo', 'sucesso')
+      .programar('adicionarAoGrupo', 'falha');
+    const params = paramsAd({ grupos: [VPN_TI, TEC] });
+    const r1 = await conector.provisionar(contexto(params));
+    expect(r1).toMatchObject({ efeito: 'parcial', etapa: 'habilitarConta' });
+    expect(simulador.conta('maria.souza')?.gruposDn).toEqual([VPN_TI]);
+
+    const r2 = await conector.provisionar(contexto(params, { etapaInicial: retomadaApos(r1) }));
+    expect(r2).toMatchObject({ efeito: 'confirmado', etapa: 'adicionarGrupos' });
+    // 2 chamadas na primeira tentativa (1 ok + 1 falha) e só 1 na retomada: o TI não é reenviado.
+    expect(simulador.roteiro.chamadas('adicionarAoGrupo')).toBe(3);
+    expect(simulador.conta('maria.souza')?.gruposDn).toEqual([VPN_TI, TEC]);
+  });
+
+  it('DN com outra caixa e espaços identifica o mesmo grupo, sem duplicar', async () => {
+    const { simulador, conector } = montarHomonimos();
+    const r = await conector.provisionar(
+      contexto(paramsAd({ grupos: [VPN_TI, 'cn=gg-vpn, ou=ti, dc=exemplo, dc=local'] })),
+    );
+    expect(r).toMatchObject({ efeito: 'confirmado' });
+    expect(simulador.roteiro.chamadas('adicionarAoGrupo')).toBe(1);
+    expect(simulador.conta('maria.souza')?.gruposDn).toEqual([VPN_TI]);
+  });
+
+  it('nome ambíguo: validar aponta impedimento e a escrita é recusada sem aplicar nenhum dos dois', async () => {
+    const { simulador, conector } = montarHomonimos();
+    const params = paramsAd({ grupos: ['GG-VPN'] });
+    const validacao = await conector.validar(contexto(params));
+    expect(validacao.impedimentos).toContainEqual(
+      expect.objectContaining({ codigo: 'GRUPO_AMBIGUO' }),
+    );
+    const r = await conector.provisionar(contexto(params));
+    expect(r).toMatchObject({
+      efeito: 'parcial',
+      etapa: 'habilitarConta',
+      codigo: 'AD_GRUPO_AMBIGUO',
+    });
+    expect(simulador.roteiro.chamadas('adicionarAoGrupo')).toBe(0);
+    expect(simulador.conta('maria.souza')?.gruposDn).toEqual([]);
+  });
+
+  it('grupo configurado pelo DN que não existe é impedimento e falha na escrita', async () => {
+    const { conector } = montarHomonimos();
+    const params = paramsAd({ grupos: ['CN=GG-VPN,OU=Financeiro,DC=exemplo,DC=local'] });
+    expect((await conector.validar(contexto(params))).impedimentos).toContainEqual(
+      expect.objectContaining({ codigo: 'GRUPO_INEXISTENTE' }),
+    );
+    expect(await conector.provisionar(contexto(params))).toMatchObject({
+      efeito: 'parcial',
+      codigo: 'GRUPO_INEXISTENTE',
+    });
   });
 });
 

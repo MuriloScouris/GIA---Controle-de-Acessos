@@ -357,6 +357,58 @@ describe('transporte LDAPS do AD (ClienteAdLdap)', () => {
     });
   });
 
+  describe('grupos por DN, com homônimos em OUs distintas (DEV-305)', () => {
+    const VPN = `CN=GG-VPN,OU=Grupos,${BASE}`;
+    const VPN_RH = `CN=GG-VPN,OU=RH,${BASE}`;
+
+    function comHomonimo() {
+      const montado = montar();
+      montado.diretorio.criar(VPN_RH, {
+        objectClass: ['group'],
+        cn: ['GG-VPN'],
+        sAMAccountName: ['GG-VPN-RH'],
+      });
+      return montado;
+    }
+
+    it('resolve pelo DN; por nome, homônimo é ambíguo; fora da base ou não grupo é nulo', async () => {
+      const { cliente } = comHomonimo();
+      expect(await cliente.resolverGrupo(VPN)).toBe(VPN);
+      expect(await cliente.resolverGrupo(VPN_RH)).toBe(VPN_RH);
+      expect(await cliente.resolverGrupo(`cn=gg-vpn, ou=rh, ${BASE.toLowerCase()}`)).toBe(VPN_RH);
+      await expect(cliente.resolverGrupo('GG-VPN')).rejects.toMatchObject({
+        codigo: 'AD_GRUPO_AMBIGUO',
+      });
+      // sAMAccountName distinto continua resolvendo o grupo certo.
+      expect(await cliente.resolverGrupo('GG-VPN-RH')).toBe(VPN_RH);
+      expect(await cliente.resolverGrupo('CN=GG-VPN,OU=Grupos,DC=outra,DC=base')).toBeNull();
+      expect(await cliente.resolverGrupo(OU)).toBeNull();
+      expect(await cliente.resolverGrupo(`CN=Nao Existe,OU=Grupos,${BASE}`)).toBeNull();
+    });
+
+    it('provisiona só no grupo configurado pelo DN e a conta expõe o memberOf exato', async () => {
+      const { cliente, conector } = comHomonimo();
+      const r = await conector.provisionar(contexto(paramsAd({ ou: OU, grupos: [VPN_RH] })));
+      expect(r).toMatchObject({ efeito: 'confirmado', etapa: 'adicionarGrupos' });
+      const conta = await cliente.buscarConta('maria.souza');
+      expect(conta?.gruposDn).toEqual([VPN_RH]);
+      expect(conta?.grupos).toEqual(['GG-VPN']);
+
+      // Configurado o outro GG-VPN: o homônimo não conta como presente.
+      const outro = paramsAd({ ou: OU, grupos: [VPN] });
+      const existencia = await conector.conferirExistencia(contexto(outro));
+      expect(existencia.etapaComprovada).toBe('habilitarConta');
+      expect(existencia.acessosEncontrados).toEqual([`grupo:${VPN_RH}`]);
+    });
+
+    it('nome ambíguo não escreve em nenhum dos dois grupos', async () => {
+      const { cliente, conector } = comHomonimo();
+      const r = await conector.provisionar(contexto(paramsAd({ ou: OU, grupos: ['GG-VPN'] })));
+      expect(r).toMatchObject({ efeito: 'parcial', codigo: 'AD_GRUPO_AMBIGUO' });
+      expect((await cliente.buscarConta('maria.souza'))?.gruposDn).toEqual([]);
+    });
+  });
+
   it('converte o objectGUID binário para o formato textual do AD', () => {
     const bytes = Buffer.from('2bd2d3a1f9ab4c4d9b6e0123456789ab', 'hex');
     expect(guidDe(bytes)).toBe('a1d3d22b-abf9-4d4c-9b6e-0123456789ab');

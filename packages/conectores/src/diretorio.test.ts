@@ -20,6 +20,7 @@ it('API consulta AD e Graph sem transformar existência em identidade livre', as
     habilitada: true,
     ou: 'OU=Teste',
     grupos: [],
+    gruposDn: [],
   };
   const consulta = criarConsultaDiretorioReal(
     { buscarConta: async () => conta, buscarContaPorEmail: async () => conta },
