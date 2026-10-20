@@ -33,6 +33,44 @@ async function subir(opcoes: Parameters<typeof criarApp>[0] = {}) {
   };
 }
 
+/**
+ * API falsa que responde saudável em qualquer origem (pública e interna) e
+ * registra cada chamada: se o smoke aceitasse uma origem remota, tudo passaria.
+ */
+function apiFalsaSaudavel(opcoes: { readonly redirectInterno?: boolean } = {}) {
+  const chamadas: string[] = [];
+  const cabecalhos = {
+    'x-correlacao-id': '00000000-0000-4000-8000-000000000001',
+    'cache-control': 'no-store',
+    'x-content-type-options': 'nosniff',
+  };
+  const enviar: typeof fetch = async (alvo) => {
+    const u = new URL(String(alvo));
+    chamadas.push(u.href);
+    const interna = u.port === '9199' || u.hostname !== 'api.publica.invalid';
+    if (interna && opcoes.redirectInterno)
+      return new Response(null, { status: 302, headers: { location: 'http://192.0.2.10/' } });
+    if (u.pathname === '/saude') return Response.json({ status: 'ok' }, { headers: cabecalhos });
+    if (u.pathname === '/pedidos') return new Response(null, { status: 401 });
+    if (u.pathname === '/saude/pronta')
+      return interna
+        ? Response.json({
+            status: 'pronta',
+            ambiente: 'producao',
+            versao: 'v1',
+            verificacoes: { persistencia: 'ok' },
+            escrita: { modo: 'simulado', liberadas: [] },
+          })
+        : Response.json({ status: 'pronta' });
+    if (u.pathname === '/metrics' || u.pathname === '/metricas')
+      return new Response('gia_api_requisicoes_total 1\n');
+    return new Response(null, { status: 404 });
+  };
+  return { enviar, chamadas };
+}
+
+const PUBLICA = 'https://api.publica.invalid';
+
 describe('smoke test pós-deploy', () => {
   it('passa contra uma API saudável, com escrita no modo esperado e métricas', async () => {
     const { url, urlMetricas } = await subir();
@@ -74,8 +112,84 @@ describe('smoke test pós-deploy', () => {
     );
     expect(interna).toMatchObject({
       ok: false,
-      detalhe: 'modo de escrita só é conferido na porta interna: informe GIA_SMOKE_METRICAS_URL',
+      detalhe: 'porta interna obrigatória: informe GIA_SMOKE_METRICAS_URL',
     });
+  });
+
+  it('sem a porta interna o smoke nunca passa, mesmo sem modo esperado (revisão #31)', async () => {
+    // Reprodução: antes, só as checagens públicas rodavam e todas davam OK (saída 0).
+    const { enviar, chamadas } = apiFalsaSaudavel();
+    const resultado = await executarSmoke({ url: PUBLICA, fetch: enviar });
+    const falhas = resultado.filter((v) => !v.ok);
+    expect(falhas.map((v) => v.nome)).toEqual(['prontidao_interna', 'metricas']);
+    for (const falha of falhas)
+      expect(falha.detalhe).toBe('porta interna obrigatória: informe GIA_SMOKE_METRICAS_URL');
+    // As públicas continuam passando e nada além delas foi chamado.
+    expect(chamadas.every((c) => c.startsWith(`${PUBLICA}/`))).toBe(true);
+  });
+
+  it.each([
+    'http://192.0.2.10:9199/metrics',
+    'https://api.example.invalid/metrics',
+    'https://127.0.0.1:9199/metrics',
+    'http://usuario:senha@127.0.0.1:9199/metrics',
+    'http://127.0.0.1:9199/outro',
+    'http://127.0.0.1:9199/metrics?alvo=x',
+    'http://127.0.0.1:9199/metrics#x',
+    'nao-e-url',
+  ])(
+    'porta interna fora de HTTP loopback com /metrics é recusada sem chamar: %s',
+    async (urlMetricas) => {
+      // Reprodução: antes, uma origem remota que respondesse os corpos certos passava.
+      const { enviar, chamadas } = apiFalsaSaudavel();
+      const resultado = await executarSmoke({
+        url: PUBLICA,
+        urlMetricas,
+        modoEsperado: 'simulado',
+        fetch: enviar,
+      });
+      for (const nome of ['prontidao_interna', 'metricas']) {
+        const v = resultado.find((r) => r.nome === nome);
+        expect(v?.ok).toBe(false);
+        expect(v?.detalhe).toMatch(
+          /^GIA_SMOKE_METRICAS_URL (deve ser http:\/\/ de loopback|inválida)/,
+        );
+        expect(v?.detalhe).not.toContain('senha');
+      }
+      expect(chamadas.filter((c) => !c.startsWith(`${PUBLICA}/`))).toEqual([]);
+    },
+  );
+
+  it('porta interna válida em loopback (127.0.0.1, localhost, [::1]) com /metrics ou /metricas passa', async () => {
+    for (const urlMetricas of [
+      'http://127.0.0.1:9199/metrics',
+      'http://localhost:9199/metricas',
+      'http://[::1]:9199/metrics',
+    ]) {
+      const { enviar } = apiFalsaSaudavel();
+      const resultado = await executarSmoke({
+        url: PUBLICA,
+        urlMetricas,
+        modoEsperado: 'simulado',
+        fetch: enviar,
+      });
+      expect(resultado.filter((v) => !v.ok)).toEqual([]);
+    }
+  });
+
+  it('redirect na porta interna é recusado, sem seguir o destino', async () => {
+    const { enviar, chamadas } = apiFalsaSaudavel({ redirectInterno: true });
+    const resultado = await executarSmoke({
+      url: PUBLICA,
+      urlMetricas: 'http://127.0.0.1:9199/metrics',
+      fetch: enviar,
+    });
+    for (const nome of ['prontidao_interna', 'metricas'])
+      expect(resultado.find((r) => r.nome === nome)).toMatchObject({
+        ok: false,
+        detalhe: 'redirect recusado',
+      });
+    expect(chamadas.some((c) => c.includes('192.0.2.10'))).toBe(false);
   });
 
   it('falha se uma dependência não está pronta', async () => {
