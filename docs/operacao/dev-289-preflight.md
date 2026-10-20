@@ -44,6 +44,7 @@ silenciosamente nem afirma que estão seguros. Reinício e rollback exigem o pro
 | `GIA_AD_MODO`, `GIA_M365_MODO`, `GIA_DOCUSIGN_MODO`, `GIA_SOFTEXPERT_MODO`, `GIA_JIRA_MODO` | `real` para validar cada sistema; ausente não usa simulador                                     |
 | `GIA_DATABASE_URL_ARQUIVO`                                                                  | arquivo regular com URL PostgreSQL; a conexão é conferida pela readiness da API                 |
 | `GIA_PREFLIGHT_API_URL`                                                                     | origem HTTPS da API, sem usuário/senha/caminho/query/fragmento; HTTP apenas loopback em `teste` |
+| `GIA_PREFLIGHT_API_INTERNA_URL`                                                             | origem da porta interna da API (`GIA_METRICAS_PORTA`), só `http://` em loopback, sem caminho; sem ela, `prontidaoApi` bloqueia |
 | `GIA_WORKER_ARQUIVO_SAUDE`                                                                  | heartbeat do worker no mesmo ambiente, até 60 s e nunca no futuro                               |
 | `GIA_PREFLIGHT_TIMEOUT_MS`                                                                  | 100–25000 por verificação, padrão 5000; timeouts internos limitados pela composição             |
 | `GIA_PREFLIGHT_REVISAO`                                                                     | opcional, SHA de 40 caracteres para vincular a execução à revisão; não informar credencial      |
@@ -92,7 +93,10 @@ O filtro HTTP permite GET nos hosts aprovados e somente os POSTs de OAuth/JWT e 
 do getUserData de conexão. Recusa POST/PATCH/PUT/DELETE de acesso, host externo e redirect.
 Corpo de resposta limitado a 2 MiB, com cancelamento por prazo. Não usa o smoke da API que
 testa sessão por POST: aqui são exclusivamente GET `/saude`, `/saude/pronta` e `/pedidos`.
-Valida ambiente, persistência pronta, modo simulado/lista vazia, headers de proteção e 401 sem sessão.
+Valida headers de proteção, 401 sem sessão e que a `/saude/pronta` pública traz só o status
+(detalhe público é `API_PROTECAO_INVALIDA`). Ambiente, persistência pronta e modo
+simulado/lista vazia são lidos na `/saude/pronta` da porta interna
+(`GIA_PREFLIGHT_API_INTERNA_URL`). Rodar no host da API, ou por túnel até a loopback dela.
 Não abre sessão, não consome fila, não valida nem escreve um pedido real.
 
 ## Evidência e códigos
@@ -107,6 +111,7 @@ com retenção e ACL corporativas. O checksum detecta alteração; não é assin
 | Código                                                                     | Próxima ação                                                                                   |
 | -------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
 | `ESCRITA_DEVE_ESTAR_DESLIGADA` / `API_ESCRITA_HABILITADA`                  | Desligar gates e confirmar configuração efetivamente implantada                                |
+| `API_INTERNA_NAO_CONFIGURADA`                                              | Informar a porta interna da API; sem ela a escrita da API não é confirmada                     |
 | `REAL_NAO_SELECIONADO` / `CONFIGURACAO_INVALIDA`                           | Completar seleção/configuração do sistema indicado                                             |
 | `SEGREDO_INLINE_RECUSADO`                                                  | Remover valor inline e montar arquivo do cofre                                                 |
 | `ARQUIVO_AUSENTE_OU_INVALIDO` / `ARQUIVO_PERMISSAO_ABERTA`                 | Conferir mount, formato, leitura e ACL                                                         |

@@ -16,7 +16,7 @@ liberação.
 | `GIA_ESCRITA_LIBERADA`            | API e worker | vazio             | `ad:criar,ad:revogar,...`; exige a chave mestra; sem curinga       |
 | `GIA_VERSAO`                      | API          | `desconhecida`    | versão/commit do deploy, exposta na prontidão                      |
 | `GIA_LOG_NIVEL`                   | API e worker | `info`            | `debug`, `info`, `aviso`, `erro`                                   |
-| `GIA_METRICAS_PORTA`              | API          | desligado         | métricas Prometheus em `127.0.0.1:<porta>/metrics`                 |
+| `GIA_METRICAS_PORTA`              | API          | desligado         | porta interna em `127.0.0.1`: `/metrics` e `/saude/pronta` detalhada |
 | `GIA_WORKER_METRICAS_PORTA`       | worker       | desligado         | idem, para o worker                                                |
 | `GIA_WORKER_ARQUIVO_SAUDE`        | worker       | desligado         | arquivo de batimento lido pela sonda                               |
 | `GIA_WORKER_SAUDE_MAXIMO_MS`      | sonda        | `90000`           | idade máxima do batimento para considerar o worker vivo            |
@@ -85,9 +85,15 @@ Os mesmos valores de gate devem ir para a API e para o worker.
 
 - **API, vivacidade:** `GET /saude` → `200 {"status":"ok"}`. Não consulta
   dependências: banco fora não reinicia a API.
-- **API, prontidão:** `GET /saude/pronta` → `200` com `status: pronta` ou
-  `503` com as verificações em `falha`. Mostra também `versao` e o estado da
-  escrita (`modo`, `liberadas`) para conferência.
+- **API, prontidão (porta pública):** `GET /saude/pronta` → `200 {"status":"pronta"}`
+  ou `503 {"status":"indisponivel"}`. Só o status, para balanceador e sondas: a
+  porta pública não expõe ambiente, versão, verificações nem gates de escrita
+  (M7). A falha de prontidão continua no log `prontidao_falhou`, com os nomes
+  das verificações.
+- **API, prontidão detalhada (porta interna):** com `GIA_METRICAS_PORTA`, o
+  mesmo `GET /saude/pronta` em `127.0.0.1:<porta>` traz `ambiente`, `versao`,
+  as verificações e o estado da escrita (`modo`, `liberadas`), para o operador
+  no host e para o smoke e o preflight. Não publique essa porta no balanceador.
 - **Worker:** `pnpm --filter @gia/worker saude` (exec probe) → sai 0 se o
   último lote (ou falha tratada) tem até `GIA_WORKER_SAUDE_MAXIMO_MS`.
 
@@ -141,9 +147,13 @@ GIA_AMBIENTE=producao \
 pnpm --filter @gia/api smoke
 ```
 
-Confere vivacidade, prontidão (e o modo de escrita esperado), cabeçalhos de
-segurança e correlação, que dados exigem sessão, que o login simulado não
-existe em produção e as métricas. Sai 1 se algo falhar.
+Confere vivacidade, a prontidão pública (só o status: qualquer detalhe a mais
+é falha), a prontidão detalhada na porta interna (com o modo de escrita
+esperado), cabeçalhos de segurança e correlação, que dados exigem sessão, que
+o login simulado não existe em produção e as métricas. A prontidão detalhada é
+lida em `/saude/pronta` na mesma origem de `GIA_SMOKE_METRICAS_URL`; sem essa
+variável, `GIA_SMOKE_MODO_ESPERADO` falha, porque a porta pública não informa
+a escrita. Sai 1 se algo falhar.
 
 Os conectores têm homologação somente leitura própria, em `@gia/conectores`:
 `ad:verificar`, `m365:verificar`, `docusign:verificar` e `softexpert:verificar`.

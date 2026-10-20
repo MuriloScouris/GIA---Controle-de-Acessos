@@ -65,8 +65,10 @@ regra de negócio; `501` ação ainda indisponível.
   `GIA_ESCRITA_LIBERADA` (`ESCRITA_NAO_LIBERADA`). Ver
   [runbook de produção](../../docs/operacao/producao.md).
 - **Saúde e observabilidade:** `GET /saude` (vivacidade), `GET /saude/pronta`
-  (prontidão, 503 se o banco não responde), logs JSON com `x-correlacao-id` e
-  métricas Prometheus em porta interna (`GIA_METRICAS_PORTA`).
+  (prontidão, 503 se o banco não responde; na porta pública, só o status), logs
+  JSON com `x-correlacao-id` e, na porta interna (`GIA_METRICAS_PORTA`, em
+  loopback), as métricas Prometheus e a prontidão detalhada (ambiente, versão,
+  verificações e gates de escrita).
   `pnpm --filter @gia/api smoke` é o smoke test pós-deploy.
 - Respostas com `cache-control: no-store`; erros internos nunca ecoam mensagens
   do framework ou dados recebidos.
