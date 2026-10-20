@@ -1,4 +1,4 @@
-import { criarCatalogoSimulado } from '@gia/conectores';
+import { AdSimulado, criarCatalogoSimulado, criarConectorAd } from '@gia/conectores';
 import {
   POLITICA_EXECUCAO_PADRAO,
   type Instante,
@@ -736,6 +736,67 @@ describe.skipIf(!TEM_BANCO)(
       expect((await item(c.itens.m365!.id)).status).toBe('confirmado');
       expect((await pedido(c.pedido.id))?.status).toBe('concluido');
       expect(programados.chamadas.map((ch) => ch.sistema)).toEqual(['ad', 'm365', 'm365']);
+    });
+  },
+);
+
+describe.skipIf(!TEM_BANCO)(
+  'worker: progresso por etapa do AD (M2)',
+  { timeout: TEMPO_BANCO_MS },
+  () => {
+    it('reprocesso em adicionarGrupos que cai no segundo grupo fica parcial, sem refazer etapas', async () => {
+      const base = cenario(['ad']);
+      const adBase = base.itens.ad!;
+      if (adBase.parametros.sistema !== 'ad') throw new Error('parâmetros do AD esperados');
+      const parametros = { ...adBase.parametros, grupos: ['GG_Todos', 'GG_VPN'] };
+      const c = { ...base, itens: { ad: { ...adBase, parametros } } };
+      // A conta já foi criada, teve a senha definida e foi habilitada numa execução anterior.
+      const simulador = new AdSimulado({
+        ous: [parametros.ou],
+        grupos: ['GG_Todos', 'GG_VPN'],
+        contas: [
+          {
+            guid: 'ad-guid-existente',
+            login: parametros.login,
+            cpf: parametros.cpf,
+            email: parametros.email,
+            habilitada: true,
+            ou: parametros.ou,
+            grupos: [],
+          },
+        ],
+      });
+      simulador.roteiro
+        .programar('adicionarAoGrupo', 'sucesso')
+        .programar('adicionarAoGrupo', 'conexaoRecusada');
+      const conectores = {
+        ...criarCatalogoSimulado().conectores,
+        ad: criarConectorAd(simulador, {
+          modo: 'real',
+          ouInativos: 'OU=Inativos,DC=exemplo,DC=local',
+        }),
+      };
+      const op = operacao(c, 'ad', { etapaInicial: 'adicionarGrupos' });
+      await gravar(persistencia, c, [op]);
+
+      await executor(conectores).processarLote();
+
+      // Antes (M2): semEfeito transitório, a operação voltava à fila e a etapa
+      // inteira era refeita. Agora o grupo adicionado conta como progresso.
+      expect(await ler(op.id)).toMatchObject({
+        status: 'concluida',
+        efeito: 'parcial',
+        tentativas: 1,
+        etapaAlcancada: 'habilitarConta',
+      });
+      expect(await item(c.itens.ad.id)).toMatchObject({
+        status: 'parcial',
+        etapaAlcancada: 'habilitarConta',
+      });
+      // Nenhuma etapa já confirmada foi chamada de novo.
+      for (const metodo of ['criarContaDesabilitada', 'definirSenhaInicial', 'habilitarConta'])
+        expect(simulador.roteiro.chamadas(metodo), metodo).toBe(0);
+      expect(simulador.conta(parametros.login)?.grupos).toEqual(['GG_Todos']);
     });
   },
 );

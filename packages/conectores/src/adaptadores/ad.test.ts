@@ -1,4 +1,11 @@
-import { avaliarExistencia, CODIGO_JA_REVOGADO } from '@gia/dominio';
+import {
+  avaliarExistencia,
+  CODIGO_JA_REVOGADO,
+  proximaEtapa,
+  type Conector,
+  type Etapa,
+  type ResultadoOperacao,
+} from '@gia/dominio';
 import { describe, expect, it } from 'vitest';
 import { AdSimulado } from '../simuladores/ad.js';
 import {
@@ -18,6 +25,146 @@ function montar(estado: ConstructorParameters<typeof AdSimulado>[0] = {}) {
   const conector = criarConectorAd(simulador, { modo: 'simulado', ouInativos: OU_INATIVOS });
   return { simulador, conector };
 }
+
+/**
+ * Etapa em que a próxima tentativa começa, como o worker faz: a seguinte à
+ * última etapa comprovada (`etapaAlcancada`), ou o início se nada foi comprovado.
+ */
+function retomadaApos(resultado: ResultadoOperacao): Etapa | null {
+  return resultado.etapa === null ? null : proximaEtapa('ad', 'provisionar', resultado.etapa);
+}
+
+async function tentarDeNovo(conector: Conector, anterior: ResultadoOperacao) {
+  return conector.provisionar(contexto(paramsAd(), { etapaInicial: retomadaApos(anterior) }));
+}
+
+describe('conector AD: retomada em cada fronteira do provisionamento (M2)', () => {
+  type Simulador = ReturnType<typeof montar>['simulador'];
+  const fronteiras: readonly {
+    readonly nome: string;
+    readonly programar: (s: Simulador) => void;
+    readonly primeira: Partial<ResultadoOperacao>;
+    readonly retomaEm: Etapa | null;
+    readonly chamadas: Readonly<Record<string, number>>;
+  }[] = [
+    {
+      nome: 'falha ao criar a conta',
+      programar: (s) => s.roteiro.programar('criarContaDesabilitada', 'falha'),
+      primeira: { efeito: 'semEfeito', etapa: null },
+      retomaEm: null,
+      chamadas: { criarContaDesabilitada: 2, definirSenhaInicial: 1, habilitarConta: 1 },
+    },
+    {
+      nome: 'falha ao definir a senha',
+      programar: (s) => s.roteiro.programar('definirSenhaInicial', 'falha'),
+      primeira: { efeito: 'parcial', etapa: 'criarContaDesabilitada' },
+      retomaEm: 'definirSenha',
+      chamadas: { criarContaDesabilitada: 1, definirSenhaInicial: 2, habilitarConta: 1 },
+    },
+    {
+      nome: 'falha ao habilitar',
+      programar: (s) => s.roteiro.programar('habilitarConta', 'conexaoRecusada'),
+      primeira: { efeito: 'parcial', etapa: 'definirSenha', transitorio: true },
+      retomaEm: 'habilitarConta',
+      chamadas: { criarContaDesabilitada: 1, definirSenhaInicial: 1, habilitarConta: 2 },
+    },
+    {
+      nome: 'falha no primeiro grupo',
+      programar: (s) => s.roteiro.programar('adicionarAoGrupo', 'falha'),
+      primeira: { efeito: 'parcial', etapa: 'habilitarConta' },
+      retomaEm: 'adicionarGrupos',
+      chamadas: { criarContaDesabilitada: 1, definirSenhaInicial: 1, habilitarConta: 1 },
+    },
+    {
+      nome: 'falha no segundo grupo, com o primeiro já adicionado',
+      programar: (s) =>
+        s.roteiro.programar('adicionarAoGrupo', 'sucesso').programar('adicionarAoGrupo', 'falha'),
+      primeira: { efeito: 'parcial', etapa: 'habilitarConta' },
+      retomaEm: 'adicionarGrupos',
+      chamadas: { criarContaDesabilitada: 1, definirSenhaInicial: 1, habilitarConta: 1 },
+    },
+  ];
+
+  it.each(fronteiras)(
+    '$nome: retoma só o que falta e nenhuma etapa confirmada se repete',
+    async ({ programar, primeira, retomaEm, chamadas }) => {
+      const { simulador, conector } = montar();
+      programar(simulador);
+      const r1 = await conector.provisionar(contexto(paramsAd()));
+      expect(r1).toMatchObject(primeira);
+      expect(retomadaApos(r1)).toBe(retomaEm);
+
+      const r2 = await tentarDeNovo(conector, r1);
+      expect(r2).toMatchObject({ efeito: 'confirmado', etapa: 'adicionarGrupos', codigo: 'OK' });
+      // Cada etapa confirmada roda uma vez; só a que falhou é chamada de novo.
+      for (const [metodo, vezes] of Object.entries(chamadas))
+        expect(simulador.roteiro.chamadas(metodo), metodo).toBe(vezes);
+      // A conta termina completa, sem grupo repetido e sem conta duplicada.
+      expect(simulador.conta('maria.souza')).toMatchObject({
+        habilitada: true,
+        grupos: ['GG-Tecnologia', 'GG-VPN'],
+      });
+    },
+  );
+
+  it('retomada em adicionarGrupos que falha no segundo grupo é parcial, não semEfeito', async () => {
+    // A primeira tentativa para antes dos grupos; a retomada começa em adicionarGrupos.
+    const { simulador, conector } = montar();
+    simulador.roteiro.programar('adicionarAoGrupo', 'falha');
+    const r1 = await conector.provisionar(contexto(paramsAd()));
+    expect(retomadaApos(r1)).toBe('adicionarGrupos');
+
+    // Na retomada, o primeiro grupo entra e o segundo cai por conexão recusada.
+    simulador.roteiro
+      .programar('adicionarAoGrupo', 'sucesso')
+      .programar('adicionarAoGrupo', 'conexaoRecusada');
+    const r2 = await tentarDeNovo(conector, r1);
+    // Antes (M2): semEfeito transitório, como se nada tivesse sido feito, e o
+    // worker retentava a etapa inteira. Agora o grupo adicionado conta.
+    expect(r2).toMatchObject({ efeito: 'parcial', etapa: 'habilitarConta', transitorio: true });
+    expect(simulador.conta('maria.souza')?.grupos).toEqual(['GG-Tecnologia']);
+
+    const r3 = await tentarDeNovo(conector, r2);
+    expect(r3).toMatchObject({ efeito: 'confirmado', etapa: 'adicionarGrupos' });
+    expect(simulador.conta('maria.souza')?.grupos).toEqual(['GG-Tecnologia', 'GG-VPN']);
+    expect(simulador.roteiro.chamadas('criarContaDesabilitada')).toBe(1);
+    expect(simulador.roteiro.chamadas('habilitarConta')).toBe(1);
+  });
+
+  it('retomada em adicionarGrupos que falha já no primeiro grupo continua sem efeito novo', async () => {
+    const { simulador, conector } = montar();
+    simulador.roteiro.programar('adicionarAoGrupo', 'falha');
+    const r1 = await conector.provisionar(contexto(paramsAd()));
+    simulador.roteiro.programar('adicionarAoGrupo', 'conexaoRecusada');
+    const r2 = await tentarDeNovo(conector, r1);
+    // Nada novo nesta tentativa: semEfeito, mas a etapa já comprovada não se perde.
+    expect(r2).toMatchObject({ efeito: 'semEfeito', etapa: 'habilitarConta', transitorio: true });
+    expect(retomadaApos(r2)).toBe('adicionarGrupos');
+  });
+
+  it('grupo repetido nos parâmetros (mesmo nome com outra caixa) é adicionado uma vez só', async () => {
+    const { simulador, conector } = montar();
+    const resultado = await conector.provisionar(
+      contexto(paramsAd({ grupos: ['GG-Tecnologia', 'gg-tecnologia', 'GG-VPN'] })),
+    );
+    expect(resultado).toMatchObject({ efeito: 'confirmado' });
+    expect(simulador.roteiro.chamadas('adicionarAoGrupo')).toBe(2);
+    expect(simulador.conta('maria.souza')?.grupos).toEqual(['GG-Tecnologia', 'GG-VPN']);
+  });
+
+  it('erro que não é do fornecedor no segundo grupo continua desconhecido (regra 3)', async () => {
+    const { simulador, conector } = montar();
+    let n = 0;
+    const original = simulador.adicionarAoGrupo.bind(simulador);
+    simulador.adicionarAoGrupo = async (login, grupo) => {
+      n += 1;
+      if (n === 2) throw new Error('falha inesperada');
+      return original(login, grupo);
+    };
+    const r = await conector.provisionar(contexto(paramsAd()));
+    expect(r).toMatchObject({ efeito: 'desconhecido', etapa: 'habilitarConta' });
+  });
+});
 
 describe('conector AD', () => {
   it('provisiona nas quatro etapas e devolve o objectGUID como referência', async () => {
