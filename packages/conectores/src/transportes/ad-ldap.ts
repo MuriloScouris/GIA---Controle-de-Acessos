@@ -1,7 +1,7 @@
 import { randomInt } from 'node:crypto';
-import { normalizarAcesso } from '@gia/dominio';
 import type { ClienteAd, ContaAd, NovaContaAd } from '../adaptadores/ad.js';
 import { ErroFornecedor } from '../erros.js';
+import { dentroDe, ehDn, mesmoDn, paiDe, primeiroRdn, valorDoPrimeiroRdn } from '../dn.js';
 import { escaparValorFiltroLdap } from '../escape.js';
 import {
   RESULTADO_LDAP,
@@ -118,6 +118,10 @@ export class ClienteAdLdap implements ClienteAd {
 
   grupoExiste(grupo: string): Promise<boolean> {
     return this.ler('grupoExiste', async (s) => (await this.dnDoGrupo(s, grupo)) !== null);
+  }
+
+  resolverGrupo(grupo: string): Promise<string | null> {
+    return this.ler('resolverGrupo', (s) => this.dnDoGrupo(s, grupo));
   }
 
   criarContaDesabilitada(nova: NovaContaAd): Promise<string> {
@@ -281,7 +285,27 @@ export class ClienteAdLdap implements ClienteAd {
     return conta;
   }
 
+  /**
+   * DN do grupo. Informado por DN, vale só se estiver na base gerenciada e for
+   * um grupo; por nome (`cn` ou `sAMAccountName`), recusa homônimos
+   * (`AD_GRUPO_AMBIGUO`): nesse caso o grupo precisa ser configurado pelo DN.
+   */
   private async dnDoGrupo(s: SessaoLdap, grupo: string): Promise<string | null> {
+    if (ehDn(grupo)) {
+      if (!dentroDe(grupo, this.opcoes.baseDn)) return null;
+      try {
+        const achados = await s.buscar({
+          base: grupo,
+          escopo: 'base',
+          filtro: '(objectClass=group)',
+          atributos: ['distinguishedName'],
+        });
+        return achados.length === 1 ? achados[0]!.dn : null;
+      } catch (erro) {
+        if (codigoLdap(erro) === RESULTADO_LDAP.objetoInexistente) return null;
+        throw erro;
+      }
+    }
     const valor = escaparValorFiltroLdap(grupo);
     const achados = await s.buscar({
       base: this.opcoes.baseDn,
@@ -341,6 +365,7 @@ export class ClienteAdLdap implements ClienteAd {
       habilitada: (uacBruto & UAC_DESABILITADA) === 0,
       ou: paiDe(entrada.dn),
       grupos: memberOf.map(valorDoPrimeiroRdn),
+      gruposDn: memberOf,
     };
   }
 
@@ -442,62 +467,6 @@ export function guidDe(valor: string | Buffer | undefined): string | null {
     hex(8, 10, false),
     hex(10, 16, false),
   ].join('-');
-}
-
-/** Divide um DN nos RDNs, respeitando vírgulas escapadas (RFC 4514). */
-function rdns(dn: string): string[] {
-  const partes: string[] = [];
-  let atual = '';
-  for (let i = 0; i < dn.length; i += 1) {
-    const c = dn[i]!;
-    if (c === '\\' && i + 1 < dn.length) {
-      atual += c + dn[i + 1]!;
-      i += 1;
-    } else if (c === ',') {
-      partes.push(atual.trim());
-      atual = '';
-    } else {
-      atual += c;
-    }
-  }
-  if (atual.trim() !== '') partes.push(atual.trim());
-  return partes;
-}
-
-function primeiroRdn(dn: string): string {
-  return rdns(dn)[0] ?? dn;
-}
-
-function paiDe(dn: string): string {
-  return rdns(dn).slice(1).join(',');
-}
-
-/** Valor do primeiro RDN sem escapes (ex.: o `cn` do grupo a partir do DN em `memberOf`). */
-function valorDoPrimeiroRdn(dn: string): string {
-  const rdn = primeiroRdn(dn);
-  const valor = rdn.slice(rdn.indexOf('=') + 1);
-  return valor.replace(/\\([0-9a-fA-F]{2}|.)/g, (_, c: string) =>
-    c.length === 2 ? String.fromCharCode(parseInt(c, 16)) : c,
-  );
-}
-
-function normalizarDn(dn: string): string {
-  return rdns(dn)
-    .map((rdn) => {
-      const igual = rdn.indexOf('=');
-      return `${rdn.slice(0, igual).trim().toLowerCase()}=${normalizarAcesso(rdn.slice(igual + 1))}`;
-    })
-    .join(',');
-}
-
-function mesmoDn(a: string, b: string): boolean {
-  return normalizarDn(a) === normalizarDn(b);
-}
-
-function dentroDe(dn: string, base: string): boolean {
-  const filho = normalizarDn(dn);
-  const pai = normalizarDn(base);
-  return filho === pai || filho.endsWith(`,${pai}`);
 }
 
 const MAIUSCULAS = 'ABCDEFGHJKLMNPQRSTUVWXYZ';

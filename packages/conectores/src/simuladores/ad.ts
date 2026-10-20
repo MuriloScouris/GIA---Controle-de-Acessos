@@ -1,11 +1,23 @@
 import { normalizarAcesso } from '@gia/dominio';
+import { ehDn, mesmoDn, normalizarDn, valorDoPrimeiroRdn } from '../dn.js';
 import { ErroFornecedor } from '../erros.js';
 import type { ClienteAd, ContaAd, NovaContaAd } from '../adaptadores/ad.js';
 import { Roteiro } from './roteiro.js';
 
+/** OU onde ficam os grupos declarados só pelo nome. */
+export const OU_GRUPOS_SIMULADOS = 'OU=Grupos,DC=exemplo,DC=local';
+
 export interface EstadoInicialAd {
-  readonly contas?: readonly ContaAd[];
+  /** `grupos` por nome ou por DN; `gruposDn`, se informado, prevalece. */
+  readonly contas?: readonly (Omit<ContaAd, 'gruposDn'> & {
+    readonly gruposDn?: readonly string[];
+  })[];
   readonly ous?: readonly string[];
+  /**
+   * Grupos existentes, por DN (`CN=GG-VPN,OU=TI,DC=...`) ou só pelo nome, que
+   * vira `CN=<nome>,OU=Grupos,DC=exemplo,DC=local`. Dois DNs com o mesmo `cn`
+   * modelam homônimos em OUs diferentes.
+   */
   readonly grupos?: readonly string[];
 }
 
@@ -17,6 +29,7 @@ interface ContaSimulada {
   habilitada: boolean;
   senhaDefinida: boolean;
   ou: string;
+  /** DNs dos grupos da conta (o `memberOf`). */
   grupos: string[];
 }
 
@@ -28,17 +41,22 @@ export class AdSimulado implements ClienteAd {
   });
   private readonly contas = new Map<string, ContaSimulada>();
   private readonly ous: Set<string>;
-  private readonly grupos: Set<string>;
+  /** DN normalizado → DN como declarado. */
+  private readonly grupos = new Map<string, string>();
   private sequencia = 0;
 
   constructor(estado: EstadoInicialAd = {}) {
     this.ous = new Set(estado.ous ?? []);
-    this.grupos = new Set((estado.grupos ?? []).map(normalizarAcesso));
+    for (const grupo of estado.grupos ?? []) {
+      const dn = ehDn(grupo) ? grupo : `CN=${grupo},${OU_GRUPOS_SIMULADOS}`;
+      this.grupos.set(normalizarDn(dn), dn);
+    }
     for (const conta of estado.contas ?? []) {
+      const { gruposDn, ...resto } = conta;
       this.contas.set(normalizarAcesso(conta.login), {
-        ...conta,
+        ...resto,
         senhaDefinida: true,
-        grupos: [...conta.grupos],
+        grupos: [...(gruposDn ?? conta.grupos.map((g) => this.dnDeclarado(g)))],
       });
     }
   }
@@ -70,7 +88,11 @@ export class AdSimulado implements ClienteAd {
   }
 
   grupoExiste(grupo: string): Promise<boolean> {
-    return this.roteiro.passar('grupoExiste', () => this.grupos.has(normalizarAcesso(grupo)));
+    return this.roteiro.passar('grupoExiste', () => this.dnDoGrupo(grupo) !== null);
+  }
+
+  resolverGrupo(grupo: string): Promise<string | null> {
+    return this.roteiro.passar('resolverGrupo', () => this.dnDoGrupo(grupo));
   }
 
   criarContaDesabilitada(nova: NovaContaAd): Promise<string> {
@@ -117,12 +139,11 @@ export class AdSimulado implements ClienteAd {
   adicionarAoGrupo(login: string, grupo: string): Promise<void> {
     return this.roteiro.passar('adicionarAoGrupo', () => {
       const conta = this.exigir(login);
-      if (!this.grupos.has(normalizarAcesso(grupo))) {
+      const dn = this.dnDoGrupo(grupo);
+      if (dn === null) {
         throw new ErroFornecedor('recusado', 'GRUPO_INEXISTENTE', 'O grupo não existe no AD.');
       }
-      if (!conta.grupos.some((g) => normalizarAcesso(g) === normalizarAcesso(grupo))) {
-        conta.grupos.push(grupo);
-      }
+      if (!conta.grupos.some((g) => mesmoDn(g, dn))) conta.grupos.push(dn);
     });
   }
 
@@ -136,6 +157,32 @@ export class AdSimulado implements ClienteAd {
     return this.roteiro.passar('moverParaOu', () => {
       this.exigir(login).ou = ou;
     });
+  }
+
+  /** Como o transporte real: por DN exato, ou por `cn` recusando homônimos. */
+  private dnDoGrupo(grupo: string): string | null {
+    if (ehDn(grupo)) return this.grupos.get(normalizarDn(grupo)) ?? null;
+    const achados = [...this.grupos.values()].filter(
+      (dn) => normalizarAcesso(valorDoPrimeiroRdn(dn)) === normalizarAcesso(grupo),
+    );
+    if (achados.length > 1) {
+      throw new ErroFornecedor(
+        'recusado',
+        'AD_GRUPO_AMBIGUO',
+        'Mais de um grupo no AD tem este nome; confira no diretório.',
+      );
+    }
+    return achados[0] ?? null;
+  }
+
+  /** DN de um grupo da conta inicial informado por nome (o grupo declarado, se único). */
+  private dnDeclarado(grupo: string): string {
+    if (ehDn(grupo)) return grupo;
+    try {
+      return this.dnDoGrupo(grupo) ?? `CN=${grupo},${OU_GRUPOS_SIMULADOS}`;
+    } catch {
+      return `CN=${grupo},${OU_GRUPOS_SIMULADOS}`;
+    }
   }
 
   private exigir(login: string): ContaSimulada {
@@ -154,7 +201,8 @@ export class AdSimulado implements ClienteAd {
       email: conta.email,
       habilitada: conta.habilitada,
       ou: conta.ou,
-      grupos: [...conta.grupos],
+      grupos: conta.grupos.map(valorDoPrimeiroRdn),
+      gruposDn: [...conta.grupos],
     };
   }
 }
