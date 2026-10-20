@@ -17,9 +17,14 @@ import { exigirSegredosForaDoAmbiente } from '@gia/contratos/segredos';
 import { configuracaoPadrao, type ConfiguracaoSistemas } from '@gia/dominio';
 import { VARIAVEL_URL_BANCO } from '@gia/persistencia';
 import { VARIAVEL_TLS_NODE, exigirTlsVerificado } from '@gia/contratos';
+import { proxiesConfiaveis } from './proxies-confiaveis.js';
 
 export const VARIAVEL_METRICAS_PORTA = 'GIA_METRICAS_PORTA';
 export const VARIAVEL_VERSAO = 'GIA_VERSAO';
+/** Proxies reversos em que a API confia para ler o IP do cliente em `X-Forwarded-For` (M8). */
+export const VARIAVEL_PROXY_CONFIAVEL = 'GIA_API_PROXY_CONFIAVEL';
+
+export { proxiesConfiaveis };
 
 /** O que a API precisa do ambiente, já validado. */
 export interface AmbienteApi {
@@ -30,6 +35,8 @@ export interface AmbienteApi {
   readonly metricas: RegistroMetricas;
   readonly versao: string;
   readonly portaMetricas: number | null;
+  /** Proxies confiáveis na frente da API (`GIA_API_PROXY_CONFIAVEL`); vazio = nenhum. */
+  readonly proxiesConfiaveis: readonly string[];
   readonly urlBanco: string | null;
 }
 
@@ -63,6 +70,8 @@ export function prepararAmbienteApi(
   const gates = registrar(() => carregarGatesDeEscrita(env));
   const porta = portaDeMetricas(env[VARIAVEL_METRICAS_PORTA]);
   if (porta === 'invalida') erros.add(VARIAVEL_METRICAS_PORTA);
+  const proxies = proxiesConfiaveis(env[VARIAVEL_PROXY_CONFIAVEL]);
+  if (proxies === 'invalido') erros.add(VARIAVEL_PROXY_CONFIAVEL);
   const url = env[VARIAVEL_URL_BANCO]?.trim() ?? '';
   if (config !== null && gates !== null && url === '') {
     if (config.ambiente === 'producao' || gates.escritaExterna) erros.add(VARIAVEL_URL_BANCO);
@@ -100,6 +109,7 @@ export function prepararAmbienteApi(
     metricas: new RegistroMetricas(),
     versao,
     portaMetricas: porta === 'invalida' ? null : porta,
+    proxiesConfiaveis: proxies === 'invalido' ? [] : proxies,
     urlBanco: url === '' ? null : url,
   };
 }

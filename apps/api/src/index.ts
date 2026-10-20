@@ -50,6 +50,7 @@ export function criarAppDoAmbiente(
     registrador: ambiente.registrador,
     metricas: ambiente.metricas,
     versao: ambiente.versao,
+    proxiesConfiaveis: ambiente.proxiesConfiaveis,
     // DEV-288: login OIDC em produção; sessão simulada só em desenvolvimento ou com opt-in em teste.
     autenticacao: autenticacaoDoAmbiente(env, ambiente.config.ambiente),
   };

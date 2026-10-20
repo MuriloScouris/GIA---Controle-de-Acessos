@@ -19,7 +19,7 @@ Status possíveis: `pendente` → `em correção` → `corrigido (PR #n)` ou
 | M5 | Conector DocuSign | Regressão de timeout na composição: o DocuSign recebe `limitar(...)` sobre o padrão de 20 s. Isso pode divergir dos timeouts próprios do cliente do #19. | `packages/conectores/src/composicao.ts:126-129` | Unificar a política de timeout do DocuSign com o cliente do #19 e cobrir com teste. | corrigido (PR #28) |
 | M6 | TLS | `NODE_TLS_REJECT_UNAUTHORIZED=0` só é barrado no preflight. A API e o worker sobem normalmente com a verificação TLS desligada. | `apps/worker/src/preflight/preflight.ts:307` | Recusar a subida da API e do worker em `producao` com essa variável; idealmente, avisar em qualquer ambiente. | corrigido (DEV-299, PR #29; commits `14093f4`, `d4022a8` e `c1c5867`): `exigirTlsVerificado` (`packages/contratos/src/tls.ts`) recusa em `producao` a subida da API, do worker e do `smoke:integracoes`, antes de ler o cofre. Fora de produção, a API e o worker registram o aviso `tls_verificacao_desligada`, e o smoke o traz em `avisos` sem dar `validado`. Testes: `packages/contratos/src/tls.test.ts`, `apps/api/src/producao.test.ts`, `apps/api/src/arranque-integracoes.test.ts` (ordem antes do cofre) e `apps/worker/src/index.test.ts` |
 | M7 | Observabilidade | `/saude/pronta` é pública e expõe detalhes operacionais (versão, modo e liberações de escrita). | `apps/api/src/http/observabilidade.ts:85` | Na porta pública, responder só o status; mover os detalhes para a porta interna de métricas ou exigir autenticação. | corrigido (DEV-300, PR #31; commits `5a5e6dc` e `8cd6c07`): a porta pública responde só `{ status }` (`prontidaoPublicaRespostaSchema`), com ou sem sessão; ambiente, versão, verificações e gates de escrita saem só na porta interna (`GIA_METRICAS_PORTA`, loopback), em `/saude/pronta`. O smoke e o preflight leem o detalhe ali (`GIA_SMOKE_METRICAS_URL`, `GIA_PREFLIGHT_API_INTERNA_URL`). Testes: `apps/api/src/producao.test.ts`, `apps/api/src/smoke.test.ts`, `apps/api/src/arranque-integracoes.test.ts`, `apps/worker/src/preflight/preflight.test.ts` |
-| M8 | OIDC | `/sessao/oidc/entrar` não tem teto de requisições. Cada chamada cria um estado pendente (state/nonce/PKCE) em memória, o que permite abuso e consumo de memória. | `apps/api/src/http/rotas-oidc.ts` | Limitar a taxa por origem e o total de estados pendentes, com expiração curta. | pendente |
+| M8 | OIDC | `/sessao/oidc/entrar` não tem teto de requisições. Cada chamada cria um estado pendente (state/nonce/PKCE) em memória, o que permite abuso e consumo de memória. | `apps/api/src/http/rotas-oidc.ts` | Limitar a taxa por origem e o total de estados pendentes, com expiração curta. | corrigido (DEV-301, PR #34): ver [M8 — como foi corrigido](#m8--como-foi-corrigido-dev-301) |
 | M9 | OIDC / testes | Faltam testes negativos de token: `nonce` trocado, `aud` errado, `iss` errado, `tid` de outro tenant e `exp` vencido. | `apps/api/src/oidc.test.ts` | Um teste por claim inválida, cada um esperando `LOGIN_TOKEN_INVALIDO` e nenhuma sessão aberta. | pendente |
 | M10 | E2E | O E2E (Playwright e `tests/e2e`) só roda com a sessão simulada. O caminho OIDC não é exercitado de ponta a ponta. | `tests/e2e/apoio.ts`, `tests/browser/` | Criar um E2E com provedor OIDC falso local (emissor, JWKS e authorize), cobrindo login, acesso negado e logout. | pendente |
 
@@ -106,3 +106,54 @@ sessões em memória e decisões de produto, estão em
   e `packages/conectores/src/prazo.test.ts` (`limitarAoPrazo`). O certificado do teste é gerado na
   hora com o `openssl` do ambiente; sem ele o teste é pulado fora do CI e falha no CI.
 - **Fora de escopo:** os demais conectores não mudam; nenhuma escrita externa foi habilitada.
+
+### M8 — como foi corrigido (DEV-301)
+
+- **Causa:** `GET /sessao/oidc/entrar` é público e cada chamada guardava um login pendente
+  (state, nonce e verificador PKCE) por 10 minutos. Só havia um teto global de 5000 estados:
+  nenhum limite por origem nem de taxa, então uma origem esgotava a lista e deixava todo mundo sem
+  login, e a limpeza varria a lista inteira a cada requisição.
+- **Correção (`apps/api/src/sessao/logins-pendentes.ts`, usado por `http/rotas-oidc.ts`):**
+  - **Taxa por origem:** no máximo 30 inícios de login por minuto. A tentativa recusada também
+    conta, então quem insiste continua barrado até parar por uma janela inteira.
+  - **Estados por origem:** no máximo 100 pendentes de uma mesma origem, dentro do teto global de
+    5000. A tabela de origens contadas também tem teto (10.000), para não virar o novo alvo.
+  - **Expiração curta:** 5 minutos (antes 10), também no `Max-Age` do cookie `gia_oidc_estado`. O
+    estado vencido nunca é devolvido: o retorno vira `LOGIN_ESTADO_INVALIDO` sem trocar o código.
+  - **Limpeza:** os estados ficam em ordem de vencimento, então a varredura para no primeiro que
+    ainda vale (custo proporcional ao que venceu); consumir um estado ou ele vencer libera a vaga
+    da origem; origens sem início recente são esquecidas uma vez por janela.
+  - **Origem:** o IP da conexão (IPv4 inteiro; IPv6 pelo prefixo /64; IPv4 mapeado vira IPv4; sem
+    IP legível, todos dividem uma origem só).
+  - **Recusa sem vazar detalhe:** o limite por origem e o teto de capacidade respondem
+    igualmente `303` para `/login?erro=LOGIN_INDISPONIVEL`, sem estado novo, sem corpo e sem
+    cabeçalho de limite ou contagem. A auditoria recebe só `login_recusado` com `LOGIN_LIMITE_ORIGEM`
+    ou `LOGIN_LIMITE_CAPACIDADE`, nunca o IP.
+- **Origem atrás de proxy (`GIA_API_PROXY_CONFIAVEL`):** a API escuta em `127.0.0.1`, então, atrás
+  de um proxy reverso, o IP da conexão é o do proxy e todos os usuários dividiriam a mesma origem
+  (o limite por origem viraria um limite global, folgado de propósito para isso). Para limitar por
+  cliente, informe os proxies em quem a API confia, por exemplo `GIA_API_PROXY_CONFIAVEL=127.0.0.1`
+  (IPs ou CIDRs). A lista é validada na partida, e também ao montar a API, e recusa redes largas
+  demais: IPv4 abaixo de `/8`, IPv6 abaixo de `/16`, `/0`, nomes, palavras-chave e zona (`%`).
+  **IPv4 mapeado em IPv6** (`::ffff:a.b.c.d/N`) é normalizado para IPv4 antes de validar, porque o
+  Fastify o compara como a rede IPv4 equivalente: o prefixo que vale é `N - 96`, então
+  `::ffff:0.0.0.0/96` (o `0.0.0.0/0`, que faria qualquer cliente escolher a própria origem pelo
+  `X-Forwarded-For`) é recusado, e `::ffff:10.0.0.0/104` vira `10.0.0.0/8`. Rede IPv6 que contém
+  todo o bloco mapeado (`::/16`, `::/64`...) também é recusada. O `X-Forwarded-For`
+  só vale quando a conexão vem desses endereços; sem a variável ele é ignorado, porque qualquer
+  cliente poderia forjá-lo. Uma contagem de saltos não serve: o Fastify a trata como "não confiar
+  em ninguém".
+- **Limite conhecido:** os estados continuam em memória do processo, como as sessões (ver
+  [`producao.md`](producao.md#pendências-para-produção)): um reinício derruba os logins em curso,
+  que recomeçam no `/login`. Os limites são por processo. A recusa por abuso não gera alerta
+  próprio; a auditoria registra cada uma.
+- **Testes:** `apps/api/src/sessao/logins-pendentes.test.ts` (taxa, estados por origem, total,
+  tabela de origens, expiração no instante exato, uso único, limpeza e `origemDe`),
+  `apps/api/src/oidc.test.ts` ("limite de logins pendentes", pelo HTTP: recusa idêntica sem IP,
+  vaga devolvida quando um login conclui, expiração de 5 minutos, varredura sem retorno,
+  `X-Forwarded-For` ignorado e aceito só do proxy confiável, IPv6 /64 e o uso normal intacto) e
+  `apps/api/src/producao.test.ts` (validação de `GIA_API_PROXY_CONFIAVEL`, inclusive o IPv4
+  mapeado e a normalização; revisão do PR #34) e, pelo HTTP, o bloco "CIDR IPv4 mapeado em IPv6"
+  de `oidc.test.ts` (31 inícios variando o `X-Forwarded-For`: 30 aceitos e 1 recusa com proxy
+  restrito, e o `::ffff:0.0.0.0/96` nem sobe).
+- **Fora de escopo:** o mapeamento de papéis (M1) não mudou; nenhuma escrita externa foi habilitada.

@@ -14,8 +14,11 @@ no teste). **Não foi validado contra um tenant real** — veja
 1. `GET /sessao/oidc/entrar?retorno=/pedidos/123` → 302 para
    `https://login.microsoftonline.com/<tenant>/oauth2/v2.0/authorize` com
    `state`, `nonce` e `code_challenge` (S256). O servidor guarda o login
-   pendente (uso único, 10 min) e grava o cookie `gia_oidc_estado`
-   (`HttpOnly; Secure; SameSite=Lax`).
+   pendente (uso único, 5 min) e grava o cookie `gia_oidc_estado`
+   (`HttpOnly; Secure; SameSite=Lax`). O início tem limite por origem e no total de pendentes
+   (30 por minuto e 100 pendentes por origem; 5000 no total): acima disso, `LOGIN_INDISPONIVEL`,
+   igual para qualquer motivo. Atrás de proxy, configure `GIA_API_PROXY_CONFIAVEL` para a origem
+   ser o cliente, não o proxy (pendência M8, em [`pendencias-medias-sprint1.md`](pendencias-medias-sprint1.md)).
 2. O Entra ID volta em `GET /sessao/oidc/retorno?code=...&state=...`. O
    servidor exige que `state` exista, não tenha sido usado e seja igual ao
    cookie do mesmo navegador (anti-CSRF de login); troca o código com o

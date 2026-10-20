@@ -16,7 +16,7 @@ import { describe, expect, it } from 'vitest';
 import { CABECALHO_CORRELACAO, prontidaoDetalhadaDe } from './http/observabilidade.js';
 import { criarAppDoAmbiente } from './index.js';
 import { criarPersistenciaEmMemoria } from './persistencia/memoria.js';
-import { prepararAmbienteApi } from './producao.js';
+import { prepararAmbienteApi, proxiesConfiaveis } from './producao.js';
 import { montarApi } from './teste/apoio.js';
 
 function variaveis(acao: () => unknown): readonly string[] {
@@ -148,6 +148,102 @@ describe('configuração segura por ambiente', () => {
       liberadas: [],
     });
     await app.close();
+  });
+});
+
+describe('proxies confiáveis do limite de login (GIA_API_PROXY_CONFIAVEL, M8)', () => {
+  it('padrão: nenhum proxy confiável, então o X-Forwarded-For é ignorado', () => {
+    expect(proxiesConfiaveis(undefined)).toEqual([]);
+    expect(proxiesConfiaveis('  ')).toEqual([]);
+    expect(prepararAmbienteApi({}, () => undefined).proxiesConfiaveis).toEqual([]);
+  });
+
+  it('aceita IPs e CIDRs, v4 e v6, e leva a lista ao ambiente da API', () => {
+    expect(proxiesConfiaveis('127.0.0.1, ::1,10.0.0.0/8 ,2001:db8::/32')).toEqual([
+      '127.0.0.1',
+      '::1',
+      '10.0.0.0/8',
+      '2001:db8::/32',
+    ]);
+    const ambiente = prepararAmbienteApi({ GIA_API_PROXY_CONFIAVEL: '127.0.0.1' }, () => undefined);
+    expect(ambiente.proxiesConfiaveis).toEqual(['127.0.0.1']);
+  });
+
+  it('recusa contagem de saltos, nomes, palavras-chave e redes largas demais', () => {
+    for (const ruim of [
+      '1',
+      'loopback',
+      'proxy.interno',
+      '127.0.0.1,',
+      '0.0.0.0/0',
+      '::/0',
+      '10.0.0.0/7',
+      '10.0.0.0/33',
+      '2001:db8::/15',
+      '10.0.0.0/8/8',
+      '10.0.0.0/x',
+      '999.1.1.1',
+    ]) {
+      expect(proxiesConfiaveis(ruim), ruim).toBe('invalido');
+    }
+  });
+
+  it('IPv4 mapeado em IPv6 vale como o IPv4 equivalente: o prefixo efetivo (N - 96) passa pelo mínimo /8', () => {
+    // O Fastify confia em quem casa com a rede mapeada como se fosse IPv4: o prefixo 96 não é largo.
+    for (const ruim of [
+      '::ffff:0.0.0.0/96',
+      '::ffff:0:0/96',
+      '0:0:0:0:0:ffff:0:0/96',
+      '::FFFF:0.0.0.0/96',
+      '::ffff:10.0.0.0/103',
+      '::ffff:10.0.0.0/97',
+      '::ffff:0.0.0.0/129',
+      '::ffff:10.0.0.0/104/8',
+      '::ffff:10.0.0.1%eth0',
+    ]) {
+      expect(proxiesConfiaveis(ruim), ruim).toBe('invalido');
+    }
+  });
+
+  it('rede IPv6 que contém todo o bloco mapeado também é recusada', () => {
+    for (const ruim of ['::/16', '::/64', '::/80', '0::/32', '::ffff:0:0/80', '::ffff:0:0/16']) {
+      expect(proxiesConfiaveis(ruim), ruim).toBe('invalido');
+    }
+  });
+
+  it('IPv4 mapeado restrito é permitido e normalizado para IPv4', () => {
+    expect(proxiesConfiaveis('::ffff:127.0.0.1')).toEqual(['127.0.0.1']);
+    expect(proxiesConfiaveis('0:0:0:0:0:ffff:7f00:1')).toEqual(['127.0.0.1']);
+    expect(proxiesConfiaveis('::ffff:10.1.2.3/128')).toEqual(['10.1.2.3']);
+    expect(proxiesConfiaveis('::ffff:10.0.0.0/104')).toEqual(['10.0.0.0/8']);
+    expect(proxiesConfiaveis('::ffff:192.168.0.0/112')).toEqual(['192.168.0.0/16']);
+    expect(proxiesConfiaveis('::ffff:10.0.0.0/104, 2001:db8::/32, 127.0.0.1')).toEqual([
+      '10.0.0.0/8',
+      '2001:db8::/32',
+      '127.0.0.1',
+    ]);
+    // IPv6 fora do bloco mapeado segue valendo como IPv6.
+    expect(proxiesConfiaveis('64:ff9b::/96, 2002::/16, ::1')).toEqual([
+      '64:ff9b::/96',
+      '2002::/16',
+      '::1',
+    ]);
+  });
+
+  it('valor inválido derruba a partida citando só o nome da variável', () => {
+    expect(
+      variaveis(() =>
+        prepararAmbienteApi({ GIA_API_PROXY_CONFIAVEL: '0.0.0.0/0' }, () => undefined),
+      ),
+    ).toEqual(['GIA_API_PROXY_CONFIAVEL']);
+    expect(
+      variaveis(() =>
+        prepararAmbienteApi({ GIA_API_PROXY_CONFIAVEL: '::ffff:0.0.0.0/96' }, () => undefined),
+      ),
+    ).toEqual(['GIA_API_PROXY_CONFIAVEL']);
+    expect(
+      variaveis(() => criarAppDoAmbiente({ GIA_API_PROXY_CONFIAVEL: '::ffff:0.0.0.0/96' })),
+    ).toEqual(['GIA_API_PROXY_CONFIAVEL']);
   });
 });
 
