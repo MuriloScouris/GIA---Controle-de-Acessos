@@ -1,4 +1,5 @@
 import { normalizarAcesso, type Apontamento, type Conector, type ParametrosAd } from '@gia/dominio';
+import { ErroFornecedor } from '../erros.js';
 import { escaparValorDn } from '../escape.js';
 import { criarConector, type Fornecedor, type OpcoesConector } from '../motor.js';
 
@@ -144,7 +145,7 @@ export function criarFornecedorAd(cliente: ClienteAd, opcoes: OpcoesAd): Fornece
         {
           etapa: 'adicionarGrupos',
           executar: async () => {
-            for (const grupo of p.grupos) await cliente.adicionarAoGrupo(p.login, grupo);
+            await adicionarGrupos(cliente, p.login, p.grupos);
             return null;
           },
         },
@@ -159,6 +160,37 @@ export function criarFornecedorAd(cliente: ClienteAd, opcoes: OpcoesAd): Fornece
       };
     },
   };
+}
+
+/**
+ * Adiciona os grupos um a um, sem repetir o mesmo grupo na chamada. Se um
+ * grupo falha depois de outro já ter entrado, a falha carrega
+ * `progressoConfirmado` (M2): o resultado vira `parcial`, e não `semEfeito`,
+ * então o worker não retenta a etapa inteira às cegas e o item não aparece
+ * como "nada feito". Na retomada, adicionar quem já é membro não escreve nada
+ * (o transporte confere o `memberOf` por DN antes de alterar o grupo).
+ */
+async function adicionarGrupos(
+  cliente: ClienteAd,
+  login: string,
+  grupos: readonly string[],
+): Promise<void> {
+  const vistos = new Set<string>();
+  let adicionados = 0;
+  for (const grupo of grupos) {
+    const chave = normalizarAcesso(grupo);
+    if (vistos.has(chave)) continue;
+    vistos.add(chave);
+    try {
+      await cliente.adicionarAoGrupo(login, grupo);
+      adicionados += 1;
+    } catch (erro) {
+      if (erro instanceof ErroFornecedor && adicionados > 0) {
+        throw new ErroFornecedor(erro.tipo, erro.codigo, erro.message, erro.tentarAposMs, true);
+      }
+      throw erro;
+    }
+  }
 }
 
 function semSistema(p: ParametrosAd): Omit<ParametrosAd, 'sistema'> {
