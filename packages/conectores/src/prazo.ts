@@ -8,13 +8,31 @@ export function dentroDoPrazo<T>(ms: number, executar: () => Promise<T>): Promis
   return prazo.run(Date.now() + ms, executar);
 }
 
+function restantePrazo(): number {
+  return (prazo.getStore() ?? Infinity) - Date.now();
+}
+
 export function exigirPrazo(): number {
-  const restante = (prazo.getStore() ?? Infinity) - Date.now();
+  const restante = restantePrazo();
   if (restante <= 0) throw new ErroFornecedor('timeout', 'INTEGRACAO_TIMEOUT');
   return restante;
 }
 
-/** Nunca inicia outro HTTP depois de o motor desistir; cancela a chamada em voo. */
+const METODOS_DE_LEITURA = new Set(['GET', 'HEAD', 'OPTIONS']);
+
+function ehLeitura(entrada: Parameters<typeof fetch>[0], init?: RequestInit): boolean {
+  const metodo = init?.method ?? (entrada instanceof Request ? entrada.method : 'GET');
+  return METODOS_DE_LEITURA.has(metodo.toUpperCase());
+}
+
+/**
+ * Nunca inicia outro HTTP depois de o motor desistir; cancela a chamada em voo.
+ *
+ * Resposta que chega depois do prazo (M3) não é um timeout "limpo": o destino já respondeu. Numa
+ * leitura isso é só `timeout`; numa escrita a resposta é descartada, mas a escrita pode ter sido
+ * feita, então vira `respostaPerdida` (efeito desconhecido, segue para reconciliação) e nunca
+ * `semEfeito`. Nos dois casos o corpo é cancelado para não deixar a conexão presa.
+ */
 export function criarFetchComPrazo(enviar: typeof fetch): typeof fetch {
   return async (url, init) => {
     const restante = exigirPrazo();
@@ -26,8 +44,15 @@ export function criarFetchComPrazo(enviar: typeof fetch): typeof fetch {
       ...init,
       ...(sinais.length ? { signal: AbortSignal.any(sinais) } : {}),
     });
-    exigirPrazo();
-    return resposta;
+    if (restantePrazo() > 0) return resposta;
+    await resposta.body?.cancel().catch(() => undefined);
+    throw ehLeitura(url, init)
+      ? new ErroFornecedor('timeout', 'INTEGRACAO_TIMEOUT')
+      : new ErroFornecedor(
+          'respostaPerdida',
+          'INTEGRACAO_RESPOSTA_APOS_PRAZO',
+          'A resposta chegou depois do prazo; a escrita pode ter sido feita no destino.',
+        );
   };
 }
 

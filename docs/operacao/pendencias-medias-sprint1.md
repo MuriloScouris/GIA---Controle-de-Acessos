@@ -14,7 +14,7 @@ Status possíveis: `pendente` → `em correção` → `corrigido (PR #n)` ou
 | --- | --- | --- | --- | --- | --- |
 | M1 | OIDC / autorização | Papel derivado do **nome** do grupo/role. Sem entrada no mapa, um valor igual ao nome de um papel (`administrador`, `revisor`...) vira papel do GIA. Quem cria um grupo ou app role com esse nome no tenant ganha o papel. | `apps/api/src/sessao/oidc.ts:174` (`papeisDoToken`) | Aceitar só o que estiver em `GIA_OIDC_MAPA_PAPEIS` (por object ID do grupo); remover o fallback por nome. | pendente |
 | M2 | Conector AD | O provisionamento do AD não registra `progressoConfirmado` entre etapas. Uma retomada depois de falha parcial (criar → senha → habilitar → grupos) não sabe em que etapa parou. | `packages/conectores/src/adaptadores/ad.ts:145` | Confirmar o progresso por etapa, como os demais conectores, e testar a retomada no meio da sequência. | pendente |
-| M3 | Prazo HTTP | `criarFetchComPrazo` chama `exigirPrazo()` depois da resposta. Uma resposta 2xx que chega no vencimento é descartada como timeout, mas a escrita pode ter ocorrido no destino. | `packages/conectores/src/prazo.ts:29` | Não descartar uma resposta já recebida, ou classificar o resultado como efeito desconhecido para reconciliação, nunca como falha limpa. | pendente |
+| M3 | Prazo HTTP | `criarFetchComPrazo` chama `exigirPrazo()` depois da resposta. Uma resposta 2xx que chega no vencimento é descartada como timeout, mas a escrita pode ter ocorrido no destino. | `packages/conectores/src/prazo.ts:29` | Não descartar uma resposta já recebida, ou classificar o resultado como efeito desconhecido para reconciliação, nunca como falha limpa. | corrigido (PR #30) |
 | M4 | Conector AD / LDAP | O timeout das operações LDAP não fica limitado pelo prazo restante do motor: usa o `timeoutOperacaoMs` fixo. | `packages/conectores/src/transportes/ldap.ts:178` | Usar o mínimo entre `timeoutOperacaoMs` e o prazo restante, como o HTTP. | pendente |
 | M5 | Conector DocuSign | Regressão de timeout na composição: o DocuSign recebe `limitar(...)` sobre o padrão de 20 s. Isso pode divergir dos timeouts próprios do cliente do #19. | `packages/conectores/src/composicao.ts:126-129` | Unificar a política de timeout do DocuSign com o cliente do #19 e cobrir com teste. | corrigido (PR #28) |
 | M6 | TLS | `NODE_TLS_REJECT_UNAUTHORIZED=0` só é barrado no preflight. A API e o worker sobem normalmente com a verificação TLS desligada. | `apps/worker/src/preflight/preflight.ts:307` | Recusar a subida da API e do worker em `producao` com essa variável; idealmente, avisar em qualquer ambiente. | corrigido (DEV-299, PR #29; commits `14093f4`, `d4022a8` e `c1c5867`): `exigirTlsVerificado` (`packages/contratos/src/tls.ts`) recusa em `producao` a subida da API, do worker e do `smoke:integracoes`, antes de ler o cofre. Fora de produção, a API e o worker registram o aviso `tls_verificacao_desligada`, e o smoke o traz em `avisos` sem dar `validado`. Testes: `packages/contratos/src/tls.test.ts`, `apps/api/src/producao.test.ts`, `apps/api/src/arranque-integracoes.test.ts` (ordem antes do cofre) e `apps/worker/src/index.test.ts` |
@@ -49,3 +49,22 @@ sessões em memória e decisões de produto, estão em
   que o do motor, valores inválidos recusados, M365 sem regressão).
 - **Efeito operacional:** quem tinha `GIA_DOCUSIGN_TIMEOUT_MS` acima de 25000 passa a falhar na
   subida (já era inválido na documentação). M365/SoftExpert não mudam.
+
+### M3 — como foi corrigido (DEV-296)
+
+- **Causa:** `criarFetchComPrazo` conferia o prazo depois da resposta e a descartava com um
+  `timeout` genérico (`INTEGRACAO_TIMEOUT`), sem cancelar o corpo. Numa escrita o destino já tinha
+  respondido (2xx) e podia ter agido; o registro dizia apenas "tempo esgotado".
+- **Correção (`packages/conectores/src/prazo.ts`):** a resposta recebida depois do prazo continua
+  sendo descartada (nenhuma etapa nova começa depois do prazo do motor), mas agora:
+  - **escrita** (POST/PUT/PATCH/DELETE e qualquer método fora de GET/HEAD/OPTIONS) vira
+    `respostaPerdida` com o código `INTEGRACAO_RESPOSTA_APOS_PRAZO`: efeito **desconhecido**, segue
+    para reconciliação e nunca vira `semEfeito`;
+  - **leitura** continua `timeout` (`INTEGRACAO_TIMEOUT`), que não altera nada no destino;
+  - em ambos os casos o corpo da resposta é cancelado, sem deixar a conexão presa.
+  Os tipos de `ErroFornecedor` e o mapeamento do motor (`timeout`/`respostaPerdida` →
+  `desconhecido`) não mudaram; os clientes que repetem leituras tratam os dois tipos igualmente.
+- **Testes:** `packages/conectores/src/prazo.test.ts` (resposta antes e depois do prazo, por método,
+  `Request`, prazo já vencido sem envio, corpo cancelado) e `docusign/cliente.test.ts` (criação com
+  2xx tardio vira `desconhecido`; com a resposta no prazo, `confirmado`).
+- **Fora de escopo:** M4 (prazo LDAP) segue pendente.
