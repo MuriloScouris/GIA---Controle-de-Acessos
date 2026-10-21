@@ -48,6 +48,9 @@ persistência em memória com login simulado.
 
 ## Time de agentes (Maestri)
 
+Os roles dos agentes são os globais `Partitura · *`; a configuração do time (Linear, serviços,
+portais, portas proibidas) está na seção [Partitura](#partitura), no fim deste arquivo.
+
 | Agente        | Papel                                                                                              |
 | ------------- | -------------------------------------------------------------------------------------------------- |
 | `Claude Code` | Maestro: cria issues no Linear, despacha, valida no portal, mantém o `Painel`. Não escreve código. |
@@ -61,3 +64,56 @@ para comparar antes/depois na mesma rota.
 
 Fluxo: pedido → issue no Linear → Bigorna implementa no worktree → `pnpm check` → PR → validação
 visual nos dois portais → merge só com OK do Murilo → Done.
+
+## Partitura
+
+Configuração do time de agentes Maestri deste projeto (skill `/partitura`, roles globais
+`Partitura · *`). Os agentes leem esta seção; mantenha-a atualizada.
+
+```yaml
+projeto: New GIA - Controle de Acessos
+sigla: GIA
+workspace_maestri: New Gia - Gestão de acessos
+repo: https://github.com/MuriloScouris/GIA---Controle-de-Acessos
+branch_padrao: main
+clone_main: C:/Users/ft.murilo/antigravity/new-gia
+worktrees: C:/Users/ft.murilo/antigravity/new-gia-wt/<ID>
+
+linear:
+  team_id: 4e9fd532-67df-45c7-8fa5-fea6bd4e0dda # DEV "Time-dev-ia"
+  project_id: 93d36750-193a-452d-8128-d747d2fc9cb2 # New Gia - Controle de acessos
+  estados:
+    backlog: d67a9a36-81c0-436b-89b0-3b884e87463e
+    todo: f66da1a6-d2d8-4a95-a2fc-df6aa7d1451e
+    in_progress: f86c42e7-2c9b-4190-a2e9-8741996c47dd
+    in_review: 489c5e7d-0d62-4af1-a222-32edaba96d37
+    done: 15764e65-fa8c-4748-b085-fc1e03bcf432
+    canceled: 0e2dbe4a-ec50-4eed-af48-2d3202929f4d
+  labels:
+    Bug: ab5d5de8-0482-46b4-bfe7-85034dc04824
+    Feature: 900606ef-0f96-4c54-85a5-aa2d4e546e29
+    Improvement: 2f1a52a4-0117-414f-aea1-caa1ab537b0d
+    risk:high: cbd1045e-03b3-4e18-b9e0-ef250d0158ea
+    needs-human: 07c182ca-578d-4685-84d6-9e53dc9930f8
+
+comandos:
+  instalar: pnpm install
+  check: pnpm check
+  build: pnpm build
+
+servicos:
+  main: # terminal "Caldeira", a partir de clone_main (pnpm build antes da API)
+    api: PORT=3100 GIA_AMBIENTE=desenvolvimento pnpm --filter @gia/api start
+    web: GIA_API_PORT=3100 pnpm --filter @gia/web dev --port 5180 --strictPort
+    url: http://localhost:5180
+  branch: # Bigorna, a partir do worktree (pnpm build antes da API)
+    api: PORT=3101 GIA_AMBIENTE=desenvolvimento pnpm --filter @gia/api start
+    web: GIA_API_PORT=3101 pnpm --filter @gia/web dev --port 5181 --strictPort
+    url: http://localhost:5181
+
+portais:
+  main: GIA Web
+  branch: GIA Branch
+
+portas_proibidas: [3000, 3001, 5173, 5433, 54322, 54323]
+```
